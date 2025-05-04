@@ -44,7 +44,7 @@ DEVICE_STATE_LISTENING = 'listening'  # 正在录音
 DEVICE_STATE_PROCESSING = 'processing'  # 正在处理音频
 
 # 全局配置变量
-PV_API_KEY = "engq+3lVOO74PHIKEFTW0/d17wc9gVarMZWkjXZgxvGbqPV2q58koA=="
+PV_API_KEY = "t3m7HIoZMij6ckGwQlNwq41olJVIWTYVlH81lSjyt792u6nC8kFjLw=="
 PORCUPINE_KEYWORD_PATH = "wakeword_source/hey_yumi.ppn"
 
 EMBEDDED_CONFIG = {
@@ -418,6 +418,46 @@ class PiClient:
         self.config["audio_topic"] = f"{topic_prefix}/client/audio/{device_id}"
         self.config["status_topic"] = f"{topic_prefix}/client/status/{device_id}"
         self.config["config_topic"] = f"{topic_prefix}/client/config/{device_id}"
+
+    def _get_ip_address(self):
+        """获取设备的实际IP地址（非127.0.0.1或127.0.1.1）
+
+        返回:
+            str: 设备的IP地址，如果无法获取则返回127.0.0.1
+        """
+        try:
+            # 创建一个临时套接字连接到外部服务器
+            # 这会使用默认路由，从而获取正确的本地IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))  # 连接到Google DNS
+            ip = s.getsockname()[0]     # 获取本地IP
+            s.close()
+            return ip
+        except Exception as e:
+            logger.warning(f"无法获取IP地址: {e}，使用默认值")
+
+            # 尝试获取所有非回环接口的IP
+            try:
+                for interface in socket.if_nameindex():
+                    ifname = interface[1]
+                    if ifname != 'lo':  # 排除回环接口
+                        try:
+                            ip = socket.inet_ntoa(
+                                socket.ioctl(
+                                    socket.socket(socket.AF_INET, socket.SOCK_DGRAM),
+                                    0x8915,  # SIOCGIFADDR
+                                    struct.pack('256s', ifname.encode()[:15])
+                                )[20:24]
+                            )
+                            if ip and not ip.startswith('127.'):
+                                return ip
+                        except:
+                            continue
+            except:
+                pass
+
+            # 如果上述方法都失败，返回主机名解析结果
+            return socket.gethostbyname(socket.gethostname())
 
     def initialize(self):
         """初始化客户端"""
@@ -821,7 +861,7 @@ class PiClient:
             # 创建状态消息
             message = {
                 "device_id": self.config["device_id"],
-                "ip": socket.gethostbyname(socket.gethostname()),
+                "ip": self._get_ip_address(),  # 使用更可靠的方法获取 IP
                 "password": EMBEDDED_CONFIG["system"]["password"],
                 "timestamp": time.time(),
                 "status": status
