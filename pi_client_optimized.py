@@ -98,20 +98,27 @@ class PorcupineWakeWordDetector:
             self.config = config
 
             access_key = PV_API_KEY
-            keyword_paths = PORCUPINE_KEYWORD_PATH
+            keyword_paths = config.get('porcupine_keyword_paths', [PORCUPINE_KEYWORD_PATH])
             sensitivity = config.get('porcupine_sensitivity', 0.5)
 
             if not access_key or not keyword_paths:
                 logger.error("缺少Porcupine配置：access_key或keyword_paths")
                 return False
 
-            logger.info(f"初始化Porcupine，关键词路径：{keyword_paths}")
+            # 确保keyword_paths是列表
+            if not isinstance(keyword_paths, list):
+                keyword_paths = [keyword_paths]
+
+            # 创建与关键词数量相匹配的敏感度列表
+            sensitivities = [float(sensitivity)] * len(keyword_paths)
+
+            logger.info(f"初始化Porcupine，关键词路径：{keyword_paths}，敏感度：{sensitivities}")
 
             # 创建Porcupine实例
             self.porcupine = pvporcupine.create(
                 access_key=access_key,
                 keyword_paths=keyword_paths,
-                sensitivities=[float(sensitivity)]
+                sensitivities=sensitivities
             )
 
             # 初始化音频
@@ -342,7 +349,7 @@ class PiClient:
 
             # Porcupine配置
             "porcupine_access_key": PV_API_KEY,
-            "porcupine_keyword_paths": PORCUPINE_KEYWORD_PATH,  # 使用全局变量
+            "porcupine_keyword_paths": [PORCUPINE_KEYWORD_PATH],  # 使用全局变量，确保是列表
             "porcupine_sensitivity": 0.5,
 
             # 唤醒词行为配置
@@ -695,7 +702,7 @@ class PiClient:
                         # 创建唤醒词检测器配置
                         detector_config = {
                             "porcupine_access_key": PV_API_KEY,
-                            "porcupine_keyword_paths": PORCUPINE_KEYWORD_PATH,
+                            "porcupine_keyword_paths": [PORCUPINE_KEYWORD_PATH],  # 确保是列表
                             "porcupine_sensitivity": wake_word_config.get("sensitivity", 0.5),
                             "pre_buffer_duration": EMBEDDED_CONFIG.get("recording", {}).get("pre_buffer_duration", 0)
                         }
