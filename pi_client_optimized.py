@@ -18,7 +18,6 @@ import os
 import logging
 import queue
 from queue import Queue
-import argparse
 import signal
 import sys
 import struct
@@ -44,7 +43,9 @@ DEVICE_STATE_IDLE = 'idle'           # 空闲状态，等待唤醒
 DEVICE_STATE_LISTENING = 'listening'  # 正在录音
 DEVICE_STATE_PROCESSING = 'processing'  # 正在处理音频
 
+# 全局配置变量
 PV_API_KEY = "engq+3lVOO74PHIKEFTW0/d17wc9gVarMZWkjXZgxvGbqPV2q58koA=="
+PORCUPINE_KEYWORD_PATH = "wakeword_source/hey_yumi.ppn"
 
 EMBEDDED_CONFIG = {
     "system": {
@@ -97,7 +98,7 @@ class PorcupineWakeWordDetector:
             self.config = config
 
             access_key = PV_API_KEY
-            keyword_paths = config.get('porcupine_keyword_paths')
+            keyword_paths = PORCUPINE_KEYWORD_PATH
             sensitivity = config.get('porcupine_sensitivity', 0.5)
 
             if not access_key or not keyword_paths:
@@ -341,7 +342,7 @@ class PiClient:
 
             # Porcupine配置
             "porcupine_access_key": PV_API_KEY,
-            "porcupine_keyword_paths": ["porcupine/hello-chris_en_windows_v3_0_0/hello-chris_en_windows_v3_0_0.ppn"],  # 默认路径
+            "porcupine_keyword_paths": PORCUPINE_KEYWORD_PATH,  # 使用全局变量
             "porcupine_sensitivity": 0.5,
 
             # 唤醒词行为配置
@@ -694,7 +695,7 @@ class PiClient:
                         # 创建唤醒词检测器配置
                         detector_config = {
                             "porcupine_access_key": PV_API_KEY,
-                            "porcupine_keyword_paths": wake_word_config.get("keyword_paths", ["porcupine/hello-chris_en_windows_v3_0_0/hello-chris_en_windows_v3_0_0.ppn"]),
+                            "porcupine_keyword_paths": PORCUPINE_KEYWORD_PATH,
                             "porcupine_sensitivity": wake_word_config.get("sensitivity", 0.5),
                             "pre_buffer_duration": EMBEDDED_CONFIG.get("recording", {}).get("pre_buffer_duration", 0)
                         }
@@ -1425,69 +1426,39 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 if __name__ == "__main__":
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description="优化版Pi客户端")
-    parser.add_argument("--broker", help="MQTT代理地址", default="broker.emqx.io")
-    parser.add_argument("--port", type=int, help="MQTT代理端口", default=1883)
-    parser.add_argument("--username", help="MQTT用户名")
-    parser.add_argument("--password", help="MQTT密码")
-    parser.add_argument("--server", help="服务器IP地址")
-    parser.add_argument("--udp-port", type=int, help="服务器音频传输UDP端口", default=8884)
-    parser.add_argument("--udp-receive-port", type=int, help="客户端音频接收UDP端口", default=8885)
-    parser.add_argument("--discovery-port", type=int, help="服务发现UDP端口", default=50000)
-    parser.add_argument("--stt-bridge", help="STT桥接处理器IP地址", default=None)
-    parser.add_argument("--stt-bridge-port", type=int, help="STT桥接处理器UDP端口", default=8884)
-    parser.add_argument("--stt-mode", action="store_true", help="启用STT桥接模式，直接发送音频到STT处理器")
-    parser.add_argument("--device-id", help="设备ID", default="rasp1")
-    parser.add_argument("--debug", action="store_true", help="启用调试模式")
-    parser.add_argument("--porcupine-keyword", help="Porcupine关键词路径")
-
-    # 默音检测参数
-    parser.add_argument("--silence-threshold", type=int, help="默音能量阈值", default=300)
-    parser.add_argument("--initial-silence", type=float, help="唤醒后初始静默时间阈值(秒)", default=3.0)
-    parser.add_argument("--speech-silence", type=float, help="说话后静默时间阈值(秒)", default=1.0)
-    parser.add_argument("--max-recording", type=float, help="最大录音时长(秒)", default=15.0)
-
-    args = parser.parse_args()
-
-    # 创建配置
+    # 使用默认配置
     config = {
-        "mqtt_broker": args.broker,
-        "mqtt_port": args.port,
-        "mqtt_username": args.username,
-        "mqtt_password": args.password,
-        "server_ip": args.server,
-        "server_udp_port": args.udp_port,
-        "server_udp_receive_port": args.udp_receive_port,
-        "discovery_port": args.discovery_port,
-        "stt_bridge_ip": args.stt_bridge,
-        "stt_bridge_port": args.stt_bridge_port,
-        "stt_mode": args.stt_mode,
-        "debug": args.debug,
+        # MQTT配置
+        "mqtt_broker": "broker.emqx.io",
+        "mqtt_port": 1883,
+        "mqtt_username": None,
+        "mqtt_password": None,
+
+        # 服务器配置
+        "server_ip": None,
+        "server_udp_port": 8884,
+        "server_udp_receive_port": 8885,
+        "discovery_port": 50000,
+
+        # STT配置
+        "stt_bridge_ip": None,
+        "stt_bridge_port": 8884,
+        "stt_mode": False,
+
+        # 设备配置
+        "device_id": "rasp1",
+        "debug": False,
 
         # 默音检测参数
-        "silence_threshold": args.silence_threshold,
-        "initial_silence_duration": args.initial_silence,
-        "speech_silence_duration": args.speech_silence,
-        "recording_timeout": args.max_recording
+        "silence_threshold": 300,
+        "initial_silence_duration": 3.0,
+        "speech_silence_duration": 1.0,
+        "recording_timeout": 15.0,
+
+        # Porcupine配置
+        "porcupine_access_key": PV_API_KEY,
+        "porcupine_keyword_paths": PORCUPINE_KEYWORD_PATH
     }
-
-    if args.device_id:
-        config["device_id"] = args.device_id
-
-    # 设置Porcupine配置
-    # 1. 首先检查命令行参数
-    config["porcupine_access_key"] = PV_API_KEY
-
-    # 设置关键词路径
-    if args.porcupine_keyword:
-        config["porcupine_keyword_paths"] = [args.porcupine_keyword]
-        logger.info(f"已从命令行参数加载Porcupine关键词路径: {args.porcupine_keyword}")
-    else:
-        # 使用默认路径
-        config["porcupine_keyword_paths"] = ["porcupine/hello-chris_en_windows_v3_0_0/hello-chris_en_windows_v3_0_0.ppn"]
-        logger.info(f"使用默认Porcupine关键词路径: {config['porcupine_keyword_paths']}")
-
 
     # 设置信号处理
     signal.signal(signal.SIGINT, signal_handler)
@@ -1497,9 +1468,8 @@ if __name__ == "__main__":
     client = PiClient(config)
     client.initialize()
 
-    # 如果没有指定服务器IP，尝试发现服务器
-    if not args.server:
-        client.discover_server()
+    # 尝试发现服务器
+    client.discover_server()
 
     # 保持程序运行
     try:
