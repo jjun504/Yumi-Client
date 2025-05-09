@@ -3,12 +3,12 @@
         "device_id": "mixue001",
         "password": "654321",
         "user_id": "user001",
-        "boot_time": "2025-05-09 17:37:27",
+        "boot_time": "2025-05-09 17:44:07",
         "model": "raspberry_pi",
         "version": "1.0.0",
         "log_level": "DEBUG",
         "status": "offline",
-        "last_update": 1746783447.9155514
+        "last_update": 1746783847.6682012
     },
     "wake_word": {
         "enabled": true,

@@ -231,7 +231,7 @@ class PiClient:
             "mqtt_port": DEFAULT_CONFIG["mqtt"]["port"],
             "mqtt_username": DEFAULT_CONFIG["mqtt"]["username"],
             "mqtt_password": DEFAULT_CONFIG["mqtt"]["password"],
-            "mqtt_client_id": f"{DEFAULT_CONFIG['mqtt']['client_id_prefix']}_{socket.gethostname()}",
+            "mqtt_client_id": f"{DEFAULT_CONFIG['mqtt']['client_id_prefix']}_{socket.gethostname()}_{int(time.time())}_{id(threading.current_thread())}",
             "topic_prefix": DEFAULT_CONFIG["mqtt"]["topic_prefix"],
 
             # 设备信息
@@ -419,10 +419,13 @@ class PiClient:
 
     def _setup_mqtt(self):
         """设置MQTT连接 - 参照dev_control.py"""
-        # 创建MQTT客户端 - 使用 paho-mqtt 1.x 风格
-        self.mqtt_client = mqtt.Client(self.config["mqtt_client_id"])
-        logger.info(f"初始化MQTT客户端 {self.config['mqtt_client_id']}")
+        # 确保客户端ID是唯一的
+        if not self.config["mqtt_client_id"] or len(self.config["mqtt_client_id"]) < 10:
+            self.config["mqtt_client_id"] = f"{DEFAULT_CONFIG['mqtt']['client_id_prefix']}_{socket.gethostname()}_{int(time.time())}_{id(threading.current_thread())}"
 
+        # 创建MQTT客户端 - 使用 paho-mqtt 1.x 风格
+        self.mqtt_client = mqtt.Client(self.config["mqtt_client_id"], clean_session=True)
+        logger.info(f"初始化MQTT客户端 {self.config['mqtt_client_id']} (clean_session=True)")
 
         # 设置用户名密码（如果有）
         if self.config["mqtt_username"] and self.config["mqtt_password"]:
@@ -436,22 +439,43 @@ class PiClient:
         self.mqtt_client.on_disconnect = self._on_mqtt_disconnect
         self.mqtt_client.on_message = self._on_mqtt_message
 
-        # 连接到MQTT代理
-        try:
-            # 连接到MQTT代理
-            logger.info(f"正在连接到 {self.config['mqtt_broker']}:{self.config['mqtt_port']}...")
-            self.mqtt_client.connect(
-                self.config["mqtt_broker"],
-                self.config["mqtt_port"],
-                60  # keepalive 60秒
-            )
+        # 设置自动重连
+        self.mqtt_client.reconnect_delay_set(min_delay=1, max_delay=120)
 
-            # 启动MQTT循环
-            self.mqtt_client.loop_start()
-            logger.info("MQTT循环已启动")
+        # 最大重试次数
+        max_retries = 3
+        retry_count = 0
 
-        except Exception as e:
-            logger.error(f"MQTT连接失败: {e}")
+        while retry_count < max_retries:
+            try:
+                # 连接到MQTT代理
+                logger.debug(f"正在连接到 {self.config['mqtt_broker']}:{self.config['mqtt_port']}... (尝试 {retry_count+1}/{max_retries})")
+                self.mqtt_client.connect(
+                    self.config["mqtt_broker"],
+                    self.config["mqtt_port"],
+                    60  # keepalive 60秒
+                )
+
+                # 启动MQTT循环
+                self.mqtt_client.loop_start()
+                logger.info("MQTT循环已启动")
+
+                # 连接成功，跳出循环
+                break
+
+            except Exception as e:
+                retry_count += 1
+                logger.error(f"MQTT连接失败 (尝试 {retry_count}/{max_retries}): {e}")
+
+                if retry_count < max_retries:
+                    # 等待一段时间后重试
+                    retry_delay = 2 ** retry_count  # 指数退避: 2, 4, 8...秒
+                    logger.info(f"将在 {retry_delay} 秒后重试连接...")
+                    time.sleep(retry_delay)
+                else:
+                    logger.error(f"MQTT连接失败，已达到最大重试次数 ({max_retries})")
+                    # 最后一次尝试失败后，仍然启动循环，以便后续自动重连
+                    self.mqtt_client.loop_start()
 
     def _setup_udp(self):
         """设置UDP套接字"""
@@ -510,15 +534,41 @@ class PiClient:
         try:
             # 构建状态消息
             self._publish_status("offline")
-            time.sleep(3)
+            time.sleep(1)  # 减少等待时间
             logger.info("已发布离线状态")
         except Exception as e:
             logger.error(f"发布离线状态失败: {e}")
 
         self.is_connected = False
+
         # 如果是意外断开，尝试重新连接
         if rc != 0:
-            logger.info("尝试重新连接...")
+            logger.info("MQTT连接意外断开，将自动尝试重新连接...")
+
+            # 更新客户端ID，确保唯一性
+            new_client_id = f"{DEFAULT_CONFIG['mqtt']['client_id_prefix']}_{socket.gethostname()}_{int(time.time())}_{id(threading.current_thread())}"
+            self.config["mqtt_client_id"] = new_client_id
+            logger.info(f"生成新的客户端ID: {new_client_id}")
+
+            # 客户端会自动尝试重新连接，因为我们使用了loop_start()
+            # 如果需要手动重连，可以取消下面的注释
+            # try:
+            #     # 停止当前循环
+            #     client.loop_stop()
+            #     # 创建新的客户端实例
+            #     self.mqtt_client = mqtt.Client(new_client_id)
+            #     # 设置回调
+            #     self.mqtt_client.on_connect = self._on_mqtt_connect
+            #     self.mqtt_client.on_disconnect = self._on_mqtt_disconnect
+            #     self.mqtt_client.on_message = self._on_mqtt_message
+            #     # 重新连接
+            #     self.mqtt_client.connect(self.config["mqtt_broker"], self.config["mqtt_port"], 60)
+            #     self.mqtt_client.loop_start()
+            #     logger.info("已尝试重新连接MQTT")
+            # except Exception as e:
+            #     logger.error(f"重新连接MQTT失败: {e}")
+        else:
+            logger.info("MQTT连接正常断开")
 
     def _on_mqtt_message(self, client, userdata, msg):
         """MQTT消息回调"""
