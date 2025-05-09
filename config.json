@@ -1,0 +1,59 @@
+{
+    "system": {
+        "device_id": "mixue001",
+        "password": "654321",
+        "user_id": "user001",
+        "boot_time": "2025-05-09 17:37:27",
+        "model": "raspberry_pi",
+        "version": "1.0.0",
+        "log_level": "DEBUG",
+        "status": "offline",
+        "last_update": 1746783447.9155514
+    },
+    "wake_word": {
+        "enabled": true,
+        "api_key": "engq+3lVOO74PHIKEFTW0/d17wc9gVarMZWkjXZgxvGbqPV2q58koA==",
+        "keyword_path": "wakeword_source/hello_chris.ppn",
+        "sensitivity": 0.5
+    },
+    "audio_settings": {
+        "sample_rate": 24000,
+        "channels": 1,
+        "chunk_size": 960,
+        "format": "int16",
+        "general_volume": 76,
+        "music_volume": 78,
+        "notification_volume": 50,
+        "wake_sound_path": "sound/pvwake.wav"
+    },
+    "mqtt": {
+        "broker": "broker.emqx.io",
+        "port": 1883,
+        "username": null,
+        "password": null,
+        "client_id_prefix": "smart_assistant_87",
+        "topic_prefix": "smart0337187"
+    },
+    "network": {
+        "server_ip": null,
+        "server_udp_port": 8884,
+        "server_udp_receive_port": 8885,
+        "stt_bridge_ip": null,
+        "stt_bridge_port": 8884,
+        "discovery_port": 50000,
+        "discovery_request": "DISCOVER_SERVER_REQUEST",
+        "discovery_response_prefix": "DISCOVER_SERVER_RESPONSE_",
+        "stt_mode": false
+    },
+    "recording": {
+        "auto_stop": true,
+        "timeout": 15.0,
+        "silence_threshold": 300,
+        "initial_silence_duration": 3.0,
+        "speech_silence_duration": 1.0,
+        "save_path": "recordings"
+    },
+    "debug": {
+        "enabled": false
+    }
+}

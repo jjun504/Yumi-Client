@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-优化版Pi客户端 - 负责音频录制、播放和数据传输
-参考py-xiaozhi.py实现，专注于低延迟音频传输
+优化版Pi客户端 - 负责音频录制和数据传输
+专注于低延迟音频传输
 支持Porcupine唤醒词检测
 """
 
@@ -15,7 +15,7 @@ import socket
 import json
 import time
 import os
-import logging
+from loguru import logger
 import queue
 from queue import Queue
 import signal
@@ -23,30 +23,18 @@ import sys
 import struct
 import wave
 import argparse
+import copy
 
-# 尝试导入 pvporcupine 库
-try:
-    import pvporcupine
-    PORCUPINE_AVAILABLE = True
-except ImportError:
-    PORCUPINE_AVAILABLE = False
-    logging.warning("pvporcupine 库未安装，唤醒词功能将被禁用")
-
-# 尝试导入 mpv 和 yt_dlp 库，用于音乐播放
-try:
-    import mpv
-    from yt_dlp import YoutubeDL
-    MPV_AVAILABLE = True
-except ImportError:
-    MPV_AVAILABLE = False
-    logging.warning("mpv 或 yt_dlp 库未安装，音乐播放功能将被禁用")
+# 导入自定义模块
+from music_player import MusicPlayer, MPV_AVAILABLE
+from wake_word_detector import PorcupineWakeWordDetector, PORCUPINE_AVAILABLE
 
 # 配置日志
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger("PiClient")
+# logging.basicConfig(
+#     level=logging.DEBUG,
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# )
+# logger = logging.getLogger("PiClient")
 
 # 设备状态常量
 DEVICE_STATE_IDLE = 'idle'           # 空闲状态，等待唤醒
@@ -54,161 +42,13 @@ DEVICE_STATE_LISTENING = 'listening'  # 正在录音
 DEVICE_STATE_PROCESSING = 'processing'  # 正在处理音频
 DEVICE_STATE_PLAYING = 'playing'     # 正在播放音乐
 
-class MusicPlayer:
-    """音乐播放器类 - 基于pi_mpv_player.py实现"""
-
-    def __init__(self):
-        """初始化音乐播放器"""
-        self.player = None
-        self.is_playing = False
-        self.current_title = None
-        self.monitor_thread = None
-
-    def get_direct_stream_url(self, url):
-        """
-        从URL（包括YouTube URL）获取直接可播放的音频流URL
-
-        Args:
-            url: 原始URL，可以是YouTube链接或直接音频流URL
-
-        Returns:
-            tuple: (直接流URL, 标题)
-        """
-        # 检查是否是YouTube链接
-        if 'youtube.com' not in url and 'youtu.be' not in url:
-            return url, None
-
-        logger.info(f"正在解析YouTube URL: {url}")
-
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'noplaylist': True,
-            'quiet': True,
-            'no_warnings': True,
-            'extract_flat': False,
-        }
-
-        try:
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-
-                if 'url' in info:
-                    logger.info("成功获取直接音频流URL")
-                    return info['url'], info.get('title', 'Unknown')
-                else:
-                    logger.error("无法获取直接音频流URL")
-                    return None, None
-        except Exception as e:
-            logger.error(f"解析URL时出错: {str(e)}")
-            return None, None
-
-    def play_url(self, url, volume=50):
-        """
-        播放URL（可以是YouTube链接或直接音频流URL）
-
-        Args:
-            url: 音频URL
-            volume: 音量（0-100）
-
-        Returns:
-            bool: 是否成功开始播放
-        """
-        # 停止当前播放
-        self.stop_playback()
-
-        # 获取直接流URL（如果是YouTube链接）
-        stream_url, title = self.get_direct_stream_url(url)
-        if not stream_url:
-            logger.error(f"无法获取音频流URL: {url}")
-            return False
-
-        try:
-            # 创建MPV实例
-            self.player = mpv.MPV(video=False, terminal=False, volume=volume)
-
-            # 播放音频
-            logger.info(f"开始播放: {title if title else stream_url}")
-            self.player.play(stream_url)
-            self.player.wait_until_playing()
-            self.is_playing = True
-            self.current_title = title
-
-            # 启动监控线程
-            def monitor():
-                while self.player and not self.player.core_idle and self.is_playing:
-                    time.sleep(0.5)
-
-                if self.is_playing:  # 如果不是手动停止的
-                    logger.info("播放结束")
-                    self.is_playing = False
-                    self.current_title = None
-
-            self.monitor_thread = threading.Thread(target=monitor)
-            self.monitor_thread.daemon = True
-            self.monitor_thread.start()
-
-            return True
-
-        except Exception as e:
-            logger.error(f"播放出错: {str(e)}")
-            self.is_playing = False
-            return False
-
-    def stop_playback(self):
-        """停止当前播放"""
-        if self.player and self.is_playing:
-            try:
-                self.player.terminate()
-                logger.info("播放已停止")
-            except Exception as e:
-                logger.error(f"停止播放时出错: {str(e)}")
-            finally:
-                self.is_playing = False
-                self.current_title = None
-                self.player = None
-
-    def set_volume(self, volume):
-        """
-        设置音量
-
-        Args:
-            volume: 音量（0-100）
-
-        Returns:
-            bool: 是否成功设置音量
-        """
-        if not self.player:
-            logger.warning("没有活动的播放器，无法设置音量")
-            return False
-
-        try:
-            self.player.volume = volume
-            logger.info(f"音量已设置为: {volume}")
-            return True
-        except Exception as e:
-            logger.error(f"设置音量时出错: {str(e)}")
-            return False
-
-    def get_status(self):
-        """
-        获取播放状态
-
-        Returns:
-            dict: 包含播放状态的字典
-        """
-        return {
-            "is_playing": self.is_playing,
-            "title": self.current_title,
-            "volume": self.player.volume if self.player else 0
-        }
-
 # 默认配置结构 - 集中管理所有默认值
 DEFAULT_CONFIG = {
     # 系统配置
     "system": {
-        "device_id": "rasp1",
-        "password": "654321",
-        "user_id": "user001",
+        "device_id": "",
+        "password": "",
+        "user_id": None,
         "boot_time": None,  # 将在运行时设置
         "model": "raspberry_pi",
         "version": "1.0.0",
@@ -227,7 +67,7 @@ DEFAULT_CONFIG = {
     },
 
     # 音频设置
-    "audio": {
+    "audio_settings": {
         "sample_rate": 24000,
         "channels": 1,
         "chunk_size": 960,  # 优化为Opus编码器推荐的帧大小
@@ -277,272 +117,94 @@ DEFAULT_CONFIG = {
     }
 }
 
-# 创建运行时配置（复制默认配置）
-EMBEDDED_CONFIG = {
-    "system": dict(DEFAULT_CONFIG["system"]),
-    "wake_word": {
-        "enabled": DEFAULT_CONFIG["wake_word"]["enabled"],
-    },
-    "audio_settings": {
-        "general_volume": DEFAULT_CONFIG["audio"]["general_volume"],
-        "music_volume": DEFAULT_CONFIG["audio"]["music_volume"],
-        "notification_volume": DEFAULT_CONFIG["audio"]["notification_volume"],
-    },
-    "mqtt": {
-        "broker": "broker.emqx.io",
-        "port": 1883,
-        "username": None,
-        "password": None,
-        "client_id_prefix": "smart_assistant_87",
-        "topic_prefix": "smart0337187"
-    },
-}
+# 配置文件路径
+CONFIG_FILE_PATH = "config.json"
+
+'''
+# 创建嵌入式配置（仅在发布时使用）
+# 这个结构只在_publish_config方法中创建，用于发送给服务器
+# 实际运行时使用DEFAULT_CONFIG
+'''
 
 # 兼容性变量 - 为了保持与现有代码的兼容性
 DEFAULT_PV_API_KEY = DEFAULT_CONFIG["wake_word"]["api_key"]
 PORCUPINE_KEYWORD_PATH = DEFAULT_CONFIG["wake_word"]["keyword_path"]
 
+def load_config_from_file():
+    """从配置文件加载配置"""
+    global DEFAULT_CONFIG
 
-class PorcupineWakeWordDetector:
-    """Porcupine唤醒词检测器"""
+    try:
+        if os.path.exists(CONFIG_FILE_PATH):
+            with open(CONFIG_FILE_PATH, 'r', encoding='utf-8') as f:
+                file_config = json.load(f)
+                logger.info(f"从 {CONFIG_FILE_PATH} 加载配置")
 
-    def __init__(self):
-        """初始化唤醒词检测器"""
-        self.porcupine = None          # Porcupine实例
-        self.audio = None              # PyAudio实例
-        self.stream = None             # 音频流
-        self.detection_thread = None   # 检测线程
-        self.running = False           # 运行标志
-        self.paused = False            # 暂停标志
-        self.callback = None           # 唤醒回调函数
-        self.audio_queue = Queue(maxsize=100)  # 音频数据队列(用于保存唤醒前的音频)
-        self.lock = threading.Lock()   # 线程锁
-        self.pre_buffer = []           # 预缓冲区，存储唤醒前的音频
-        self.pre_buffer_duration = 0  # 预缓冲时长(秒)
-        self.config = None             # 配置
+                # 创建一个完整的配置，包含所有默认值
+                complete_config = {
+                    "system": dict(DEFAULT_CONFIG["system"]),
+                    "wake_word": dict(DEFAULT_CONFIG["wake_word"]),
+                    "audio_settings": dict(DEFAULT_CONFIG["audio_settings"]),
+                    "mqtt": dict(DEFAULT_CONFIG["mqtt"]),
+                    "network": {
+                        "server_ip": DEFAULT_CONFIG["network"]["server_ip"],
+                        "server_udp_port": DEFAULT_CONFIG["network"]["server_udp_port"],
+                        "server_udp_receive_port": DEFAULT_CONFIG["network"]["server_udp_receive_port"],
+                        "stt_bridge_ip": DEFAULT_CONFIG["network"]["stt_bridge_ip"],
+                        "stt_bridge_port": DEFAULT_CONFIG["network"]["stt_bridge_port"],
+                        "discovery_port": DEFAULT_CONFIG["network"]["discovery_port"],
+                        "discovery_request": "DISCOVER_SERVER_REQUEST",
+                        "discovery_response_prefix": "DISCOVER_SERVER_RESPONSE_",
+                        "stt_mode": DEFAULT_CONFIG["network"]["stt_mode"]
+                    },
+                    "recording": dict(DEFAULT_CONFIG["recording"]),
+                    "debug": dict(DEFAULT_CONFIG["debug"])
+                }
 
-    def initialize(self, config):
-        """初始化Porcupine唤醒词检测器"""
-        if not PORCUPINE_AVAILABLE:
-            logger.error("无法初始化唤醒词检测器：pvporcupine库未安装")
+                # 更新完整配置，使用文件中的值
+                for section, values in file_config.items():
+                    if section in complete_config:
+                        if isinstance(values, dict) and isinstance(complete_config[section], dict):
+                            # 更新现有部分
+                            complete_config[section].update(values)
+                        else:
+                            # 替换非字典部分
+                            complete_config[section] = copy.deepcopy(values)
+                    else:
+                        # 添加新部分
+                        complete_config[section] = copy.deepcopy(values)
+
+                # 更新DEFAULT_CONFIG
+                DEFAULT_CONFIG = complete_config
+
+                return True
+        else:
+            logger.info(f"配置文件 {CONFIG_FILE_PATH} 不存在，使用默认配置")
             return False
+    except Exception as e:
+        logger.error(f"加载配置文件时出错: {e}")
+        return False
 
-        try:
-            self.config = config
-
-            access_key = DEFAULT_PV_API_KEY
-            keyword_paths = config.get('porcupine_keyword_paths', [PORCUPINE_KEYWORD_PATH])
-            sensitivity = config.get('porcupine_sensitivity', 0.5)
-
-            if not access_key or not keyword_paths:
-                logger.error("缺少Porcupine配置：access_key或keyword_paths")
-                return False
-
-            # 确保keyword_paths是列表
-            if not isinstance(keyword_paths, list):
-                keyword_paths = [keyword_paths]
-
-            # 创建与关键词数量相匹配的敏感度列表
-            sensitivities = [float(sensitivity)] * len(keyword_paths)
-
-            logger.info(f"初始化Porcupine，关键词路径：{keyword_paths}，敏感度：{sensitivities}")
-
-            # 创建Porcupine实例
-            self.porcupine = pvporcupine.create(
-                access_key=access_key,
-                keyword_paths=keyword_paths,
-                sensitivities=sensitivities
-            )
-
-            # 初始化音频
-            self.audio = pyaudio.PyAudio()
-
-            # 计算预缓冲区大小
-            sample_rate = self.porcupine.sample_rate
-            frame_length = self.porcupine.frame_length
-            frames_per_second = sample_rate / frame_length
-            self.pre_buffer_size = int(frames_per_second * self.pre_buffer_duration)
-
-            logger.info(f"唤醒词检测初始化成功，采样率：{sample_rate}Hz，帧长：{frame_length}，预缓冲：{self.pre_buffer_duration}秒")
-            return True
-
-        except Exception as e:
-            logger.error(f"初始化唤醒词检测器失败：{e}")
-            return False
-
-    def start_detection(self):
-        """启动唤醒词检测"""
-        if not PORCUPINE_AVAILABLE or not self.porcupine:
-            logger.error("无法启动唤醒词检测：未初始化")
-            return False
-
-        try:
-            # 打开音频流
-            self.stream = self.audio.open(
-                # input_device_index=0,
-                rate=self.porcupine.sample_rate,
-                channels=1,
-                format=pyaudio.paInt16,
-                input=True,
-                frames_per_buffer=self.porcupine.frame_length
-            )
-
-            # 设置运行标志
-            self.running = True
-            self.paused = False
-
-            # 创建并启动检测线程
-            self.detection_thread = threading.Thread(target=self._detection_worker)
-            self.detection_thread.daemon = True
-            self.detection_thread.start()
-
-            logger.info("唤醒词检测已启动")
-            return True
-
-        except Exception as e:
-            logger.error(f"启动唤醒词检测失败：{e}")
-            return False
-
-    def stop_detection(self):
-        """停止唤醒词检测"""
-        with self.lock:
-            self.running = False
-
-        # 等待线程结束
-        if self.detection_thread and self.detection_thread.is_alive():
-            self.detection_thread.join(timeout=2.0)
-
-        # 关闭音频流
-        if self.stream:
-            try:
-                self.stream.stop_stream()
-                self.stream.close()
-                self.stream = None
-            except:
-                pass
-
-        logger.info("唤醒词检测已停止")
-
-    def pause_detection(self):
-        """暂停唤醒词检测"""
-        with self.lock:
-            self.paused = True
-
-        # 暂停音频流
-        if self.stream:
-            try:
-                self.stream.stop_stream()
-            except:
-                pass
-
-        logger.info("唤醒词检测已暂停")
-
-    def resume_detection(self):
-        """恢复唤醒词检测"""
-        with self.lock:
-            self.paused = False
-
-        # 恢复音频流
-        if self.stream:
-            try:
-                self.stream.start_stream()
-            except:
-                pass
-
-        logger.info("唤醒词检测已恢复")
-
-    def set_callback(self, callback):
-        """设置唤醒回调函数"""
-        self.callback = callback
-
-    def _detection_worker(self):
-        """唤醒词检测工作线程"""
-        try:
-            # 清空预缓冲区
-            self.pre_buffer.clear()
-
-            while self.running:
-                # 检查是否暂停
-                if self.paused:
-                    time.sleep(0.1)
-                    continue
-
-                try:
-                    # 读取音频数据
-                    pcm = self.stream.read(self.porcupine.frame_length, exception_on_overflow=False)
-
-                    # 保存到预缓冲区
-                    self.pre_buffer.append(pcm)
-
-                    # 保持预缓冲区大小
-                    while len(self.pre_buffer) > self.pre_buffer_size:
-                        self.pre_buffer.pop(0)
-
-                    # 处理音频数据
-                    pcm_unpacked = struct.unpack_from("h" * self.porcupine.frame_length, pcm)
-
-                    # 检测唤醒词
-                    result = self.porcupine.process(pcm_unpacked)
-
-                    # 如果检测到唤醒词
-                    if result >= 0:
-                        logger.info(f"检测到唤醒词！索引：{result}")
-
-                        # 将预缓冲区的音频放入队列
-                        for frame in self.pre_buffer:
-                            self.audio_queue.put(frame)
-
-                        # 执行回调
-                        if self.callback:
-                            # 在新线程中执行回调，避免阻塞检测线程
-                            threading.Thread(target=self.callback).start()
-
-                except Exception as e:
-                    logger.error(f"唤醒词检测出错：{e}")
-                    time.sleep(0.1)
-
-        except Exception as e:
-            logger.error(f"唤醒词检测线程异常：{e}")
-        finally:
-            logger.info("唤醒词检测线程已结束")
-
-    def get_audio_data(self):
-        """获取保存的音频数据"""
-        frames = []
-
-        # 从队列中获取所有数据
-        while not self.audio_queue.empty():
-            try:
-                frames.append(self.audio_queue.get_nowait())
-                self.audio_queue.task_done()
-            except:
-                break
-
-        return frames
-
-    def cleanup(self):
-        """清理资源"""
-        # 停止检测
-        self.stop_detection()
-
-        # 释放Porcupine资源
-        if self.porcupine:
-            self.porcupine.delete()
-            self.porcupine = None
-
-        # 释放PyAudio资源
-        if self.audio:
-            self.audio.terminate()
-            self.audio = None
-
-        logger.info("唤醒词检测器资源已清理")
+def save_config_to_file():
+    """将配置保存到文件"""
+    try:
+        # 保存到文件
+        with open(CONFIG_FILE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
+        logger.info(f"配置已保存到 {CONFIG_FILE_PATH}")
+        return True
+    except Exception as e:
+        logger.error(f"保存配置文件时出错: {e}")
+        return False
 
 class PiClient:
     def __init__(self, config=None):
         """初始化Pi客户端"""
-        # 设置运行时值
-        EMBEDDED_CONFIG["system"]["boot_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        EMBEDDED_CONFIG["system"]["last_update"] = time.time()
+        # 注意：配置文件应该已经在主程序中加载，这里不再重复加载
+
+        # 设置运行时值（不保存到文件）
+        DEFAULT_CONFIG["system"]["boot_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        DEFAULT_CONFIG["system"]["last_update"] = time.time()
 
         # 从默认配置创建扁平化配置
         self.config = self._create_flat_config()
@@ -573,13 +235,13 @@ class PiClient:
             "topic_prefix": DEFAULT_CONFIG["mqtt"]["topic_prefix"],
 
             # 设备信息
-            "device_id": EMBEDDED_CONFIG["system"]["device_id"],
+            "device_id": DEFAULT_CONFIG["system"]["device_id"],
 
             # 音频配置
-            "audio_sample_rate": DEFAULT_CONFIG["audio"]["sample_rate"],
-            "audio_channels": DEFAULT_CONFIG["audio"]["channels"],
-            "audio_chunk_size": DEFAULT_CONFIG["audio"]["chunk_size"],
-            "audio_format": DEFAULT_CONFIG["audio"]["format"],
+            "audio_sample_rate": DEFAULT_CONFIG["audio_settings"]["sample_rate"],
+            "audio_channels": DEFAULT_CONFIG["audio_settings"]["channels"],
+            "audio_chunk_size": DEFAULT_CONFIG["audio_settings"]["chunk_size"],
+            "audio_format": DEFAULT_CONFIG["audio_settings"]["format"],
 
             # 网络配置
             "server_ip": DEFAULT_CONFIG["network"]["server_ip"],
@@ -753,7 +415,7 @@ class PiClient:
         # 初始化MQTT连接 - 移到最后，因为连接成功后会自动发送状态和配置
         self._setup_mqtt()
 
-        logger.info(f"Pi客户端初始化完成，设备ID: {EMBEDDED_CONFIG['system']['device_id']}")
+        logger.info(f"Pi客户端初始化完成，设备ID: {DEFAULT_CONFIG['system']['device_id']}")
 
     def _setup_mqtt(self):
         """设置MQTT连接 - 参照dev_control.py"""
@@ -826,6 +488,9 @@ class PiClient:
             client.subscribe(config_topic, qos=2)
             logger.info(f"已订阅配置主题: {config_topic}")
 
+            # 更新状态（仅在内存中）
+            DEFAULT_CONFIG["system"]["status"] = "online"
+
             # 发送在线状态
             self._publish_status("online")
             time.sleep(1)
@@ -836,38 +501,6 @@ class PiClient:
             logger.info("MQTT初始化完成")
         else:
             logger.error(f"MQTT连接失败，返回码: {rc}")
-
-    def _publish_config(self):
-        """发布设备配置"""
-        try:
-            # 构建配置主题
-            config_topic = f"{self.config['topic_prefix']}/client/config/{self.config['device_id']}"
-
-            # 构建配置消息，包含device_id和完整配置
-            config_message = {
-                'device_id': self.config["device_id"],
-                'config': EMBEDDED_CONFIG,
-                'timestamp': time.time()
-            }
-
-            # 发布配置
-            result = self.mqtt_client.publish(
-                config_topic,
-                json.dumps(config_message),
-                qos=2,
-                retain=False
-            )
-
-            if result.rc == 0:
-                logger.info(f"已发送设备配置到主题: {config_topic}")
-                return True
-            else:
-                logger.error(f"发送设备配置失败，错误码: {result.rc}")
-                return False
-
-        except Exception as e:
-            logger.error(f"发布设备配置失败: {e}")
-            return False
 
     def _on_mqtt_disconnect(self, client, userdata, rc):
         """MQTT断开连接回调"""
@@ -907,6 +540,86 @@ class PiClient:
         except Exception as e:
             logger.error(f"处理MQTT消息时出错: {e}")
 
+    def _publish_config(self):
+        """发布设备配置"""
+        try:
+            # 构建配置主题
+            config_topic = f"{self.config['topic_prefix']}/client/config/{self.config['device_id']}"
+
+            # 只在发布时创建EMBEDDED_CONFIG
+            embedded_config = {
+                "system": dict(DEFAULT_CONFIG["system"]),
+                "wake_word": {
+                    "enabled": DEFAULT_CONFIG["wake_word"]["enabled"],
+                },
+                "audio_settings": {
+                    "general_volume": DEFAULT_CONFIG["audio_settings"]["general_volume"],
+                    "music_volume": DEFAULT_CONFIG["audio_settings"]["music_volume"],
+                    "notification_volume": DEFAULT_CONFIG["audio_settings"]["notification_volume"],
+                },
+                "mqtt": dict(DEFAULT_CONFIG["mqtt"]),
+            }
+
+            # 构建配置消息，包含device_id和完整配置
+            config_message = {
+                'device_id': self.config["device_id"],
+                'config': embedded_config,
+                'timestamp': time.time()
+            }
+
+            # 发布配置
+            result = self.mqtt_client.publish(
+                config_topic,
+                json.dumps(config_message),
+                qos=2,
+                retain=False
+            )
+
+            if result.rc == 0:
+                logger.info(f"已发送设备配置到主题: {config_topic}")
+                return True
+            else:
+                logger.error(f"发送设备配置失败，错误码: {result.rc}")
+                return False
+
+        except Exception as e:
+            logger.error(f"发布设备配置失败: {e}")
+            return False
+
+    def _publish_status(self, status):
+        """发布状态信息"""
+        if not self.is_connected:
+            logger.warning("MQTT未连接，无法发布状态")
+            return
+
+        try:
+            # 创建状态消息
+            message = {
+                "device_id": self.config["device_id"],
+                "password": DEFAULT_CONFIG["system"]["password"],
+                "user_id": DEFAULT_CONFIG["system"]["user_id"],
+                "ip": self._get_ip_address(),  # 使用更可靠的方法获取 IP
+                "model": DEFAULT_CONFIG["system"]["model"],
+                "timestamp": time.time(),
+                "status": status
+            }
+
+            # 发布消息
+            result = self.mqtt_client.publish(
+                self.config["status_topic"],
+                json.dumps(message),
+                qos=2,
+                retain=False
+            )
+
+            if result.rc == 0:
+                logger.debug(f"已发布状态: {status}")
+            else:
+                logger.error(f"发布状态失败，错误码: {result.rc}")
+
+        except Exception as e:
+            logger.error(f"发布状态时出错: {e}")
+
     def _handle_config_update(self, payload):
         """处理配置更新消息"""
         try:
@@ -938,7 +651,7 @@ class PiClient:
 
                 logger.info(f"收到部分配置更新: {path} = {value}")
 
-                # 更新 EMBEDDED_CONFIG
+                # 更新配置
                 if self._set_config_value(path, value):
                     config_changed = True
                     logger.info(f"更新配置: {path} = {value}")
@@ -962,11 +675,7 @@ class PiClient:
                 for section, values in config_data.items():
                     if isinstance(values, dict):
                         for key, value in values.items():
-                            # 跳过只读配置
-                            if section == "system" and key in ["boot_time", "last_update"]:
-                                continue
-
-                            # 更新 EMBEDDED_CONFIG
+                            # 更新配置
                             path = f"{section}.{key}"
                             if self._set_config_value(path, value):
                                 config_changed = True
@@ -977,13 +686,16 @@ class PiClient:
             # 如果配置有变化，更新时间戳并应用变更
             if config_changed:
                 # 更新最后修改时间
-                EMBEDDED_CONFIG["system"]["last_update"] = time.time()
+                DEFAULT_CONFIG["system"]["last_update"] = time.time()
 
                 # 应用配置变更
                 self._apply_config_changes()
 
-                # 发送确认消息
-                self._publish_config_update_ack(message)
+                # 保存配置到文件
+                save_config_to_file()
+
+                # # 发送确认消息
+                # self._publish_config_update_ack(message)
 
                 logger.info("配置更新完成并已应用")
             else:
@@ -994,96 +706,39 @@ class PiClient:
         except Exception as e:
             logger.error(f"处理配置更新时出错: {e}")
 
-    def _publish_config_update_ack(self, original_message):
-        """发送配置更新确认消息"""
-        if not self.is_connected:
-            logger.warning("MQTT未连接，无法发送配置更新确认")
-            return
+    # def _publish_config_update_ack(self, original_message):
+    #     """发送配置更新确认消息"""
+    #     if not self.is_connected:
+    #         logger.warning("MQTT未连接，无法发送配置更新确认")
+    #         return
 
-        try:
-            # 构建确认消息主题
-            ack_topic = f"{self.config['topic_prefix']}/client/config_ack/{self.config['device_id']}"
+    #     try:
+    #         # 构建确认消息主题
+    #         ack_topic = f"{self.config['topic_prefix']}/client/config_ack/{self.config['device_id']}"
 
-            # 构建确认消息
-            ack_message = {
-                "device_id": self.config["device_id"],
-                "timestamp": time.time(),
-                "status": "success",
-                "original_config": original_message.get("config"),
-                "original_value": original_message.get("new_value", None)
-            }
+    #         # 构建确认消息
+    #         ack_message = {
+    #             "device_id": self.config["device_id"],
+    #             "timestamp": time.time(),
+    #             "status": "success",
+    #             "original_config": original_message.get("config"),
+    #             "original_value": original_message.get("new_value", None)
+    #         }
 
-            # 发布确认消息
-            result = self.mqtt_client.publish(
-                ack_topic,
-                json.dumps(ack_message),
-                qos=1
-            )
+    #         # 发布确认消息
+    #         result = self.mqtt_client.publish(
+    #             ack_topic,
+    #             json.dumps(ack_message),
+    #             qos=1
+    #         )
 
-            if result.rc == 0:
-                logger.debug("已发送配置更新确认")
-            else:
-                logger.error(f"发送配置更新确认失败，错误码: {result.rc}")
+    #         if result.rc == 0:
+    #             logger.debug("已发送配置更新确认")
+    #         else:
+    #             logger.error(f"发送配置更新确认失败，错误码: {result.rc}")
 
-        except Exception as e:
-            logger.error(f"发送配置更新确认时出错: {e}")
-
-    def _apply_config_changes(self):
-        """应用配置变更，处理需要特殊操作的配置项"""
-        try:
-            # 处理唤醒词配置
-            if "wake_word" in EMBEDDED_CONFIG:
-                wake_word_config = EMBEDDED_CONFIG["wake_word"]
-
-                # 检查是否启用/禁用唤醒词
-                if "enabled" in wake_word_config:
-                    enabled = wake_word_config["enabled"]
-                    if enabled and not self.wake_word_detector and PORCUPINE_AVAILABLE:
-                        # 启用唤醒词
-                        logger.info("启用唤醒词检测")
-                        self.wake_word_detector = PorcupineWakeWordDetector()
-
-                        # 创建唤醒词检测器配置
-                        detector_config = {
-                            "porcupine_access_key": DEFAULT_PV_API_KEY,
-                            "porcupine_keyword_paths": [PORCUPINE_KEYWORD_PATH],  # 确保是列表
-                            "porcupine_sensitivity": wake_word_config.get("sensitivity", 0.5),
-                            "pre_buffer_duration": EMBEDDED_CONFIG.get("recording", {}).get("pre_buffer_duration", 0)
-                        }
-
-                        if self.wake_word_detector.initialize(detector_config):
-                            self.wake_word_detector.set_callback(self._on_wake_word_detected)
-                            self.wake_word_detector.start_detection()
-                    elif not enabled and self.wake_word_detector:
-                        # 禁用唤醒词
-                        logger.info("禁用唤醒词检测")
-                        self.wake_word_detector.cleanup()
-                        self.wake_word_detector = None
-
-            # 处理音频设置
-            if "audio_settings" in EMBEDDED_CONFIG:
-                audio_settings = EMBEDDED_CONFIG["audio_settings"]
-                logger.info(f"应用音频设置: {audio_settings}")
-
-                # 音量设置会在播放音频时自动应用，无需额外处理
-
-            # 处理系统设置
-            if "system" in EMBEDDED_CONFIG:
-                system_settings = EMBEDDED_CONFIG["system"]
-                logger.info(f"应用系统设置: {system_settings}")
-
-                # 更新设备ID和密码
-                if "device_id" in system_settings:
-                    self.config["device_id"] = system_settings["device_id"]
-                    logger.info(f"设备ID已更新为: {system_settings['device_id']}")
-
-            # 确保调试目录存在
-            if EMBEDDED_CONFIG.get("debug", {}).get("enabled", False):
-                audio_save_path = EMBEDDED_CONFIG.get("debug", {}).get("audio_save_path", "recordings")
-                os.makedirs(audio_save_path, exist_ok=True)
-
-        except Exception as e:
-            logger.error(f"应用配置变更时出错: {e}")
+    #     except Exception as e:
+    #         logger.error(f"发送配置更新确认时出错: {e}")
 
     def _set_config_value(self, path, value):
         """设置配置项
@@ -1112,7 +767,7 @@ class PiClient:
             path = path_mapping[path]
 
         parts = path.split('.')
-        current = EMBEDDED_CONFIG
+        current = DEFAULT_CONFIG
 
         try:
             # 遍历路径直到倒数第二个部分
@@ -1144,7 +799,7 @@ class PiClient:
                 logger.info(f"配置项 {path} 的值未变化: {value}")
                 return False
 
-            # 更新 EMBEDDED_CONFIG 中的值
+            # 更新配置值
             old_value = current.get(last_part, "未设置")
             current[last_part] = value
             logger.info(f"更新配置项 {path}: {old_value} -> {value}")
@@ -1153,6 +808,63 @@ class PiClient:
         except Exception as e:
             logger.error(f"设置配置项 {path} 失败: {e}")
             return False
+
+    def _apply_config_changes(self):
+        """应用配置变更，处理需要特殊操作的配置项"""
+        try:
+            # 处理唤醒词配置
+            if "wake_word" in DEFAULT_CONFIG:
+                wake_word_config = DEFAULT_CONFIG["wake_word"]
+
+                # 检查是否启用/禁用唤醒词
+                if "enabled" in wake_word_config:
+                    enabled = wake_word_config["enabled"]
+                    if enabled and not self.wake_word_detector and PORCUPINE_AVAILABLE:
+                        # 启用唤醒词
+                        logger.info("启用唤醒词检测")
+                        self.wake_word_detector = PorcupineWakeWordDetector()
+
+                        # 创建唤醒词检测器配置
+                        detector_config = {
+                            "porcupine_access_key": DEFAULT_PV_API_KEY,
+                            "porcupine_keyword_paths": [PORCUPINE_KEYWORD_PATH],  # 确保是列表
+                            "porcupine_sensitivity": wake_word_config.get("sensitivity", 0.5),
+                            "pre_buffer_duration": DEFAULT_CONFIG.get("recording", {}).get("pre_buffer_duration", 0)
+                        }
+
+                        if self.wake_word_detector.initialize(detector_config):
+                            self.wake_word_detector.set_callback(self._on_wake_word_detected)
+                            self.wake_word_detector.start_detection()
+                    elif not enabled and self.wake_word_detector:
+                        # 禁用唤醒词
+                        logger.info("禁用唤醒词检测")
+                        self.wake_word_detector.cleanup()
+                        self.wake_word_detector = None
+
+            # 处理音频设置
+            if "audio_settings" in DEFAULT_CONFIG:
+                audio_settings = DEFAULT_CONFIG["audio_settings"]
+                logger.info(f"应用音频设置: {audio_settings}")
+
+                # 音量设置会在播放音频时自动应用，无需额外处理
+
+            # 处理系统设置
+            if "system" in DEFAULT_CONFIG:
+                system_settings = DEFAULT_CONFIG["system"]
+                logger.info(f"应用系统设置: {system_settings}")
+
+                # 更新设备ID和密码
+                if "device_id" in system_settings:
+                    self.config["device_id"] = system_settings["device_id"]
+                    logger.info(f"设备ID已更新为: {system_settings['device_id']}")
+
+            # 确保调试目录存在
+            if DEFAULT_CONFIG.get("debug", {}).get("enabled", False):
+                audio_save_path = DEFAULT_CONFIG.get("debug", {}).get("audio_save_path", "recordings")
+                os.makedirs(audio_save_path, exist_ok=True)
+
+        except Exception as e:
+            logger.error(f"应用配置变更时出错: {e}")
 
     def _handle_command(self, payload):
         """处理接收到的命令"""
@@ -1185,11 +897,18 @@ class PiClient:
 
                 # 获取YouTube链接和音量
                 youtube_url = command.get("url")
-                volume = command.get("volume", EMBEDDED_CONFIG["audio_settings"]["music_volume"])
+                volume = command.get("volume", DEFAULT_CONFIG["audio_settings"]["music_volume"])
 
                 if not youtube_url:
                     logger.error("缺少YouTube链接")
                     return
+
+                # 如果当前有音乐在播放，先停止它
+                if self.music_player.is_playing or self.music_player.player:
+                    logger.info("停止当前播放以开始新的播放")
+                    self.music_player.stop_playback()
+                    # 短暂延迟以确保资源被释放
+                    time.sleep(0.5)
 
                 # 更新设备状态
                 self.device_state = DEVICE_STATE_PLAYING
@@ -1220,6 +939,59 @@ class PiClient:
                 # 发送停止状态
                 self._publish_music_status("stopped")
 
+            elif cmd_type == "pause_music":
+                # 暂停音乐播放
+                if not MPV_AVAILABLE or not self.music_player:
+                    logger.error("音乐播放功能不可用")
+                    return
+
+                # 检查是否正在播放
+                if not self.music_player.is_playing:
+                    logger.warning("没有正在播放的音乐，无法暂停")
+                    return
+
+                # 暂停播放
+                success = self.music_player.pause_playback()
+
+                # 发送暂停状态
+                if success:
+                    self._publish_music_status("paused")
+                    logger.info("音乐播放已暂停")
+
+            elif cmd_type == "resume_music":
+                # 恢复音乐播放
+                if not MPV_AVAILABLE or not self.music_player:
+                    logger.error("音乐播放功能不可用")
+                    return
+
+                # 检查是否有播放器实例
+                if not self.music_player.player:
+                    logger.warning("没有活动的播放器，无法恢复播放")
+                    return
+
+                # 获取当前标题（在恢复之前）
+                current_title = self.music_player.current_title
+                logger.info(f"恢复前的标题: {current_title if current_title else '未知标题'}")
+
+                # 恢复播放
+                success = self.music_player.resume_playback()
+
+                # 更新设备状态
+                if success:
+                    self.device_state = DEVICE_STATE_PLAYING
+
+                    # 再次获取标题（可能在恢复过程中被更新）
+                    title = self.music_player.current_title
+
+                    # 如果标题仍然为空，但我们之前有标题，则使用之前的标题
+                    if not title and current_title:
+                        self.music_player.current_title = current_title
+                        logger.info(f"手动恢复标题信息: {current_title}")
+
+                    # 发布状态更新
+                    self._publish_music_status("playing", self.music_player.current_title)
+                    logger.info(f"音乐播放已恢复: {self.music_player.current_title if self.music_player.current_title else '未知标题'}")
+
             elif cmd_type == "set_volume":
                 # 设置音量
                 if not MPV_AVAILABLE or not self.music_player:
@@ -1237,7 +1009,7 @@ class PiClient:
 
                 # 更新配置
                 if success:
-                    EMBEDDED_CONFIG["audio_settings"]["music_volume"] = volume
+                    DEFAULT_CONFIG["audio_settings"]["music_volume"] = volume
                     logger.info(f"音乐音量已设置为: {volume}")
 
                     # 发送音量状态
@@ -1289,8 +1061,8 @@ class PiClient:
             if volume is not None:
                 message["volume"] = volume
 
-            # 如果正在播放，添加当前播放信息
-            if self.music_player and self.music_player.is_playing:
+            # 添加当前播放信息（无论是否正在播放）
+            if self.music_player and self.music_player.player:
                 player_status = self.music_player.get_status()
                 message["player_status"] = player_status
 
@@ -1309,48 +1081,11 @@ class PiClient:
         except Exception as e:
             logger.error(f"发布音乐状态时出错: {e}")
 
-    def _publish_status(self, status):
-        """发布状态信息"""
-        if not self.is_connected:
-            logger.warning("MQTT未连接，无法发布状态")
-            return
-
-        try:
-            # 创建状态消息
-            message = {
-                "device_id": self.config["device_id"],
-                "password": EMBEDDED_CONFIG["system"]["password"],
-                "ip": self._get_ip_address(),  # 使用更可靠的方法获取 IP
-                "model": EMBEDDED_CONFIG["system"]["model"],
-                "timestamp": time.time(),
-                "status": status
-            }
-
-            # 发布消息
-            result = self.mqtt_client.publish(
-                self.config["status_topic"],
-                json.dumps(message),
-                qos=2,
-                retain=False
-            )
-
-            if result.rc == 0:
-                logger.debug(f"已发布状态: {status}")
-            else:
-                logger.error(f"发布状态失败，错误码: {result.rc}")
-
-        except Exception as e:
-            logger.error(f"发布状态时出错: {e}")
-
     def start_recording(self):
         """开始录音"""
         if self.recording:
             logger.warning("录音已在进行中")
             return
-
-        # if not self.config["server_ip"]:
-        #     logger.error("服务器IP未设置，无法开始录音")
-        #     return
 
         # 设置录音标志
         self.recording = True
@@ -1535,6 +1270,111 @@ class PiClient:
         except Exception as e:
             logger.error(f"发送UDP音频数据时出错: {e}")
 
+    def _play_audio(self, audio_bytes):
+        """播放音频数据（用于MQTT接收的音频）"""
+        try:
+            # 将字节转换为NumPy数组
+            audio_data = np.frombuffer(audio_bytes, dtype=np.int16)
+
+            # 根据音量设置调整音频数据
+            try:
+                # 获取当前音量设置
+                volume_percent = DEFAULT_CONFIG["audio_settings"]["general_volume"] / 100.0
+
+                # 调整音量
+                if volume_percent != 0.5:  # 如果不是默认音量(50%)
+                    # 使用float64进行计算以避免溢出，然后转回int16
+                    audio_data = np.clip(
+                        audio_data.astype(np.float64) * (volume_percent * 2),
+                        -32768, 32767  # int16的范围
+                    ).astype(np.int16)
+
+                    logger.debug(f"已调整音频音量: {int(volume_percent * 100)}%")
+            except Exception as e:
+                logger.error(f"调整音量失败: {e}")
+
+            # 打开临时扬声器流
+            speaker = self.audio.open(
+                format=pyaudio.paInt16,
+                channels=self.config["audio_channels"],
+                rate=self.config["audio_sample_rate"],
+                output=True
+            )
+
+            # 播放音频
+            speaker.write(audio_data.tobytes())
+
+            # 关闭扬声器流
+            speaker.stop_stream()
+            speaker.close()
+
+            logger.info("音频播放完成")
+
+        except Exception as e:
+            logger.error(f"播放音频时出错: {e}")
+
+    def _play_wav_file(self, filename):
+        """播放WAV文件（轻量级实现，用于短小提示音）"""
+        try:
+            # 检查文件是否存在
+            if not os.path.exists(filename):
+                logger.error(f"WAV文件不存在: {filename}")
+                return False
+
+            # 打开WAV文件
+            with wave.open(filename, 'rb') as wf:
+                # 获取WAV文件参数
+                channels = wf.getnchannels()
+                sample_width = wf.getsampwidth()
+                sample_rate = wf.getframerate()
+
+                # 获取当前音量设置
+                volume_percent = DEFAULT_CONFIG["audio_settings"]["general_volume"] / 100.0
+
+                logger.debug(f"播放WAV文件: {filename}, 采样率: {sample_rate}Hz, 通道数: {channels}, 音量: {int(volume_percent * 100)}%")
+
+                # 打开临时扬声器流
+                speaker = self.audio.open(
+                    format=self.audio.get_format_from_width(sample_width),
+                    channels=channels,
+                    rate=sample_rate,
+                    output=True
+                )
+
+                # 读取所有数据
+                all_data = wf.readframes(wf.getnframes())
+
+                # 如果需要调整音量
+                if volume_percent != 0.5:  # 如果不是默认音量(50%)
+                    try:
+                        # 将字节转换为NumPy数组
+                        audio_data = np.frombuffer(all_data, dtype=np.int16)
+
+                        # 调整音量
+                        audio_data = np.clip(
+                            audio_data.astype(np.float64) * (volume_percent * 2),
+                            -32768, 32767  # int16的范围
+                        ).astype(np.int16)
+
+                        # 转回字节
+                        all_data = audio_data.tobytes()
+                    except Exception as e:
+                        logger.error(f"调整WAV文件音量失败: {e}")
+
+                # 播放数据
+                speaker.write(all_data)
+
+                # 关闭扬声器流
+                speaker.stop_stream()
+                speaker.close()
+
+                logger.debug(f"WAV文件播放完成: {filename}")
+                return True
+
+        except Exception as e:
+            logger.error(f"播放WAV文件时出错: {filename}, {e}")
+            return False
+
     def _audio_playback_worker(self):
         """音频播放工作线程 - 基于xiaozhi-esp-1.6.0优化"""
         try:
@@ -1594,8 +1434,8 @@ class PiClient:
 
                         # 根据音量设置调整音频数据 - 对所有音频数据应用音量调整
                         try:
-                            # 获取当前音量设置 - 使用EMBEDDED_CONFIG以支持实时更新
-                            volume_percent = EMBEDDED_CONFIG["audio_settings"]["general_volume"] / 100.0
+                            # 获取当前音量设置 - 使用DEFAULT_CONFIG以支持实时更新
+                            volume_percent = DEFAULT_CONFIG["audio_settings"]["general_volume"] / 100.0
 
                             # 如果不是默认音量(50%)，则调整
                             if volume_percent != 0.5:
@@ -1762,111 +1602,6 @@ class PiClient:
 
             logger.info("音频播放线程已结束")
 
-    def _play_audio(self, audio_bytes):
-        """播放音频数据（用于MQTT接收的音频）"""
-        try:
-            # 将字节转换为NumPy数组
-            audio_data = np.frombuffer(audio_bytes, dtype=np.int16)
-
-            # 根据音量设置调整音频数据
-            try:
-                # 获取当前音量设置
-                volume_percent = EMBEDDED_CONFIG["audio_settings"]["general_volume"] / 100.0
-
-                # 调整音量
-                if volume_percent != 0.5:  # 如果不是默认音量(50%)
-                    # 使用float64进行计算以避免溢出，然后转回int16
-                    audio_data = np.clip(
-                        audio_data.astype(np.float64) * (volume_percent * 2),
-                        -32768, 32767  # int16的范围
-                    ).astype(np.int16)
-
-                    logger.debug(f"已调整音频音量: {int(volume_percent * 100)}%")
-            except Exception as e:
-                logger.error(f"调整音量失败: {e}")
-
-            # 打开临时扬声器流
-            speaker = self.audio.open(
-                format=pyaudio.paInt16,
-                channels=self.config["audio_channels"],
-                rate=self.config["audio_sample_rate"],
-                output=True
-            )
-
-            # 播放音频
-            speaker.write(audio_data.tobytes())
-
-            # 关闭扬声器流
-            speaker.stop_stream()
-            speaker.close()
-
-            logger.info("音频播放完成")
-
-        except Exception as e:
-            logger.error(f"播放音频时出错: {e}")
-
-    def _play_wav_file(self, filename):
-        """播放WAV文件（轻量级实现，用于短小提示音）"""
-        try:
-            # 检查文件是否存在
-            if not os.path.exists(filename):
-                logger.error(f"WAV文件不存在: {filename}")
-                return False
-
-            # 打开WAV文件
-            with wave.open(filename, 'rb') as wf:
-                # 获取WAV文件参数
-                channels = wf.getnchannels()
-                sample_width = wf.getsampwidth()
-                sample_rate = wf.getframerate()
-
-                # 获取当前音量设置
-                volume_percent = EMBEDDED_CONFIG["audio_settings"]["general_volume"] / 100.0
-
-                logger.debug(f"播放WAV文件: {filename}, 采样率: {sample_rate}Hz, 通道数: {channels}, 音量: {int(volume_percent * 100)}%")
-
-                # 打开临时扬声器流
-                speaker = self.audio.open(
-                    format=self.audio.get_format_from_width(sample_width),
-                    channels=channels,
-                    rate=sample_rate,
-                    output=True
-                )
-
-                # 读取所有数据
-                all_data = wf.readframes(wf.getnframes())
-
-                # 如果需要调整音量
-                if volume_percent != 0.5:  # 如果不是默认音量(50%)
-                    try:
-                        # 将字节转换为NumPy数组
-                        audio_data = np.frombuffer(all_data, dtype=np.int16)
-
-                        # 调整音量
-                        audio_data = np.clip(
-                            audio_data.astype(np.float64) * (volume_percent * 2),
-                            -32768, 32767  # int16的范围
-                        ).astype(np.int16)
-
-                        # 转回字节
-                        all_data = audio_data.tobytes()
-                    except Exception as e:
-                        logger.error(f"调整WAV文件音量失败: {e}")
-
-                # 播放数据
-                speaker.write(all_data)
-
-                # 关闭扬声器流
-                speaker.stop_stream()
-                speaker.close()
-
-                logger.debug(f"WAV文件播放完成: {filename}")
-                return True
-
-        except Exception as e:
-            logger.error(f"播放WAV文件时出错: {filename}, {e}")
-            return False
-
     def discover_server(self, timeout=5):
         """发现服务器"""
         udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1926,6 +1661,15 @@ class PiClient:
         # 设置运行标志为False
         self.running = False
 
+        # 更新状态并保存当前配置到文件
+        old_status = DEFAULT_CONFIG["system"]["status"]
+        DEFAULT_CONFIG["system"]["status"] = "offline"
+
+        # 只有在状态发生变化时才保存配置
+        if old_status != "offline":
+            save_config_to_file()
+            logger.info("配置已保存到文件")
+
         # 发布离线状态
         if self.is_connected:
             self._publish_status("offline")
@@ -1963,7 +1707,7 @@ class PiClient:
         logger.info("唤醒词检测回调触发")
 
         # 检查唤醒词是否仍然启用
-        if not EMBEDDED_CONFIG["wake_word"]["enabled"]:
+        if not DEFAULT_CONFIG["wake_word"]["enabled"]:
             logger.warning("唤醒词已被禁用，忽略唤醒事件")
             return
 
@@ -1989,8 +1733,6 @@ class PiClient:
         for frame in pre_audio_data:
             self._send_audio_udp(frame)
 
-        # 注意：不再使用固定时长的定时器
-        # 录音将由_record_audio_worker中的默音检测自动停止
 
 def signal_handler(sig, frame):
     """信号处理函数"""
@@ -1998,6 +1740,7 @@ def signal_handler(sig, frame):
     if client:
         client.cleanup()
     sys.exit(0)
+
 
 if __name__ == "__main__":
     # 解析命令行参数
@@ -2016,8 +1759,8 @@ if __name__ == "__main__":
     parser.add_argument("--discovery-port", type=int, help="服务发现UDP端口", default=DEFAULT_CONFIG["network"]["discovery_port"])
 
     # 设备配置参数
-    parser.add_argument("--device-id", help="设备ID", default=DEFAULT_CONFIG["system"]["device_id"])
-    parser.add_argument("--device-password", help="设备密码", default=DEFAULT_CONFIG["system"]["password"])
+    parser.add_argument("--device-id", help="设备ID", default="mixue001")
+    parser.add_argument("--device-password", help="设备密码", default="654321")
 
     # Porcupine配置参数
     parser.add_argument("--porcupine-access-key", help="Porcupine访问密钥", default=DEFAULT_CONFIG["wake_word"]["api_key"])
@@ -2047,10 +1790,22 @@ if __name__ == "__main__":
         "porcupine_keyword_paths": [args.porcupine_keyword_path],
     }
 
-    # 更新EMBEDDED_CONFIG中的设备ID和密码
-    EMBEDDED_CONFIG["system"]["device_id"] = args.device_id
-    EMBEDDED_CONFIG["system"]["password"] = args.device_password
+    # 先加载配置文件
+    load_config_from_file()
 
+    # 检查是否需要更新设备ID和密码
+    config_changed = False
+    if DEFAULT_CONFIG["system"]["device_id"] != args.device_id:
+        DEFAULT_CONFIG["system"]["device_id"] = args.device_id
+        config_changed = True
+
+    if args.device_password and DEFAULT_CONFIG["system"]["password"] != args.device_password:
+        DEFAULT_CONFIG["system"]["password"] = args.device_password
+        config_changed = True
+
+    # 只有在配置实际发生变化时才保存
+    if config_changed:
+        save_config_to_file()
 
     # 设置信号处理
     signal.signal(signal.SIGINT, signal_handler)
