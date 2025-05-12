@@ -1800,7 +1800,7 @@ if __name__ == "__main__":
     parser.add_argument("--broker", help="MQTT代理地址", default=DEFAULT_CONFIG["mqtt"]["broker"])
     parser.add_argument("--port", type=int, help="MQTT代理端口", default=DEFAULT_CONFIG["mqtt"]["port"])
     parser.add_argument("--username", help="MQTT用户名", default=DEFAULT_CONFIG["mqtt"]["username"])
-    parser.add_argument("--password", help="MQTT密码", default=DEFAULT_CONFIG["mqtt"]["password"])
+    parser.add_argument("--password", help="MQTT密码")
 
     # 网络配置参数
     parser.add_argument("--server", help="服务器IP地址", default=DEFAULT_CONFIG["network"]["server_ip"])
@@ -1849,9 +1849,6 @@ if __name__ == "__main__":
         DEFAULT_CONFIG["system"]["device_id"] = args.device_id
         config_changed = True
 
-    if args.device_password and DEFAULT_CONFIG["system"]["password"] != args.device_password:
-        DEFAULT_CONFIG["system"]["password"] = args.device_password
-        config_changed = True
 
     # 只有在配置实际发生变化时才保存
     if config_changed:
