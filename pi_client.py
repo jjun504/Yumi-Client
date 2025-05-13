@@ -1665,15 +1665,25 @@ class PiClient:
         server_ip, server_port = None, None
 
         try:
+            # 确保discovery_request是字节类型
+            discovery_request = self.config["discovery_request"]
+            if isinstance(discovery_request, str):
+                discovery_request = discovery_request.encode('utf-8')
+
+            # 确保discovery_response_prefix是字节类型
+            discovery_response_prefix = self.config["discovery_response_prefix"]
+            if isinstance(discovery_response_prefix, str):
+                discovery_response_prefix = discovery_response_prefix.encode('utf-8')
+
             logger.info("正在广播发现请求...")
-            udp_sock.sendto(self.config["discovery_request"], broadcast_addr)
+            udp_sock.sendto(discovery_request, broadcast_addr)
 
             while not server_found:
                 try:
                     data, addr = udp_sock.recvfrom(1024)
-                    if data.startswith(self.config["discovery_response_prefix"]):
+                    if data.startswith(discovery_response_prefix):
                         server_ip = addr[0]
-                        server_port = int(data[len(self.config["discovery_response_prefix"]):])
+                        server_port = int(data[len(discovery_response_prefix):])
                         server_found = True
                         logger.info(f"发现服务器: {server_ip}:{server_port}")
                 except socket.timeout:
