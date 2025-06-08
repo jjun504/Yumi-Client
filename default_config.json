@@ -1,18 +1,18 @@
 {
     "system": {
-        "device_id": "yumi006",
+        "device_id": "base001",
         "password": "654321",
-        "user_id": "user001",
-        "boot_time": "2025-06-08 17:21:15",
+        "user_id": null,
+        "boot_time": "",
         "model": "raspberry_pi",
         "version": "1.0.0",
         "log_level": "DEBUG",
         "status": "offline",
-        "last_update": 1749374475.998076
+        "last_update": 1748800736.1530976
     },
     "wake_word": {
         "enabled": true,
-        "api_key": "tV/I+5UlIqmlSAuPP9/rJeTB61uVhvSYJynnqGc9DzVoRMV8Sl+3RQ==",
+        "api_key": "engq+3lVOO74PHIKEFTW0/d17wc9gVarMZWkjXZgxvGbqPV2q58koA==",
         "keyword_path": "wakeword_source/hello_chris.ppn",
         "sensitivity": 0.5
     },
@@ -21,7 +21,7 @@
         "channels": 1,
         "chunk_size": 960,
         "format": "int16",
-        "general_volume": 63,
+        "general_volume": 50,
         "music_volume": 50,
         "notification_volume": 50,
         "wake_sound_path": "sound/pvwake.wav"
@@ -35,7 +35,7 @@
         "topic_prefix": "smart0337187"
     },
     "network": {
-        "server_ip": "10.168.35.15",
+        "server_ip": null,
         "server_udp_port": 8884,
         "server_udp_receive_port": 8885,
         "stt_bridge_ip": null,
@@ -55,9 +55,5 @@
     },
     "debug": {
         "enabled": false
-    },
-    "command_topic": "smart0337187/client/command/yumi006",
-    "audio_topic": "smart0337187/client/audio/yumi006",
-    "status_topic": "smart0337187/client/status/yumi006",
-    "config_topic": "smart0337187/client/config/yumi006"
+    }
 }

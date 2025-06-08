@@ -30,6 +30,8 @@ class MusicPlayer:
         self.is_playing = False
         self.current_title = None
         self.monitor_thread = None
+        self.completion_callback = None  # 歌曲完成时的回调函数
+        self.manually_stopped = False  # 标记是否手动停止
 
     def get_direct_stream_url(self, url):
         """
@@ -100,15 +102,44 @@ class MusicPlayer:
             self.is_playing = True
             self.current_title = title
 
+            # 重置手动停止标志
+            self.manually_stopped = False
+
             # 启动监控线程
             def monitor():
-                while self.player and not self.player.core_idle and self.is_playing:
-                    time.sleep(0.5)
+                while self.player and self.is_playing:
+                    try:
+                        # 检查播放器状态
+                        if self.player.core_idle:
+                            # 播放器空闲，可能是播放完成或出错
+                            break
 
-                if self.is_playing:  # 如果不是手动停止的
-                    logger.info("播放结束")
+                        # 检查是否被暂停（但不是播放完成）
+                        if hasattr(self.player, 'pause') and self.player.pause:
+                            # 暂停状态，继续监控但不退出
+                            time.sleep(0.5)
+                            continue
+
+                        time.sleep(0.5)
+                    except Exception as e:
+                        logger.error(f"监控线程出错: {e}")
+                        break
+
+                # 监控线程退出，检查是否是自然播放完成
+                if self.is_playing and not self.manually_stopped:
+                    logger.info("歌曲自然播放完成")
                     self.is_playing = False
+                    finished_title = self.current_title  # 保存完成的歌曲标题
                     self.current_title = None
+
+                    # 调用完成回调函数
+                    if self.completion_callback:
+                        try:
+                            self.completion_callback(finished_title)
+                        except Exception as e:
+                            logger.error(f"调用歌曲完成回调时出错: {e}")
+                else:
+                    logger.debug("监控线程退出，但不是自然播放完成（手动停止或暂停）")
 
             self.monitor_thread = threading.Thread(target=monitor)
             self.monitor_thread.daemon = True
@@ -127,7 +158,10 @@ class MusicPlayer:
             try:
                 # 记录当前标题（如果有）
                 title = self.current_title
-                logger.info(f"停止播放: {title if title else '未知标题'}")
+                logger.info(f"手动停止播放: {title if title else '未知标题'}")
+
+                # 设置手动停止标志
+                self.manually_stopped = True
 
                 self.player.terminate()
                 logger.info("播放已停止")
@@ -174,7 +208,10 @@ class MusicPlayer:
         try:
             # 记录当前标题（如果有）
             title = self.current_title
-            logger.info(f"暂停播放: {title if title else '未知标题'}")
+            logger.info(f"手动暂停播放: {title if title else '未知标题'}")
+
+            # 设置手动停止标志，防止触发下一首歌曲
+            self.manually_stopped = True
 
             self.player.pause = True
             # 注意：我们不设置 is_playing = False，因为我们仍然认为音乐在"播放"状态
@@ -205,6 +242,9 @@ class MusicPlayer:
             # 确保设置 is_playing 状态为 true
             self.is_playing = True
 
+            # 重置手动停止标志，因为现在恢复播放了
+            self.manually_stopped = False
+
             # 确保标题信息不会丢失
             if not self.current_title and title:
                 self.current_title = title
@@ -215,6 +255,16 @@ class MusicPlayer:
         except Exception as e:
             logger.error(f"恢复播放时出错: {str(e)}")
             return False
+
+    def set_completion_callback(self, callback):
+        """
+        设置歌曲完成时的回调函数
+
+        Args:
+            callback: 回调函数，接收一个参数（完成的歌曲标题）
+        """
+        self.completion_callback = callback
+        logger.debug("歌曲完成回调函数已设置")
 
     def get_status(self):
         """
