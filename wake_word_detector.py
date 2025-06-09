@@ -10,6 +10,7 @@ import threading
 import time
 import struct
 import pyaudio
+import audioop
 from queue import Queue
 
 # Try to import pvporcupine library
@@ -40,6 +41,16 @@ class PorcupineWakeWordDetector:
         self.pre_buffer = []           # Pre-buffer, stores audio before wake
         self.pre_buffer_duration = 0   # Pre-buffer duration (seconds)
         self.config = None             # Configuration
+
+        # 重采样相关配置
+        self.device_rate = 48000       # 麦克风的实际采样率
+        self.processing_rate = 16000   # Porcupine要求的采样率
+        self.frames_per_read = None    # 每次读取的帧数
+
+        # 重采样相关配置
+        self.device_rate = 48000       # 麦克风的实际采样率
+        self.processing_rate = 16000   # Porcupine要求的采样率
+        self.frames_per_read = None    # 每次读取的帧数
 
     def initialize(self, config):
         """Initialize Porcupine wake word detector"""
@@ -83,7 +94,14 @@ class PorcupineWakeWordDetector:
             frames_per_second = sample_rate / frame_length
             self.pre_buffer_size = int(frames_per_second * self.pre_buffer_duration)
 
-            logger.info(f"Wake word detection initialized successfully, sample rate: {sample_rate}Hz, frame length: {frame_length}, pre-buffer: {self.pre_buffer_duration}s")
+            # 设置处理采样率
+            self.processing_rate = sample_rate
+
+            # 计算每次读取的帧数，确保重采样后能得到足够的样本
+            # Porcupine需要512个样本，重采样比例是3:1 (48000:16000)
+            self.frames_per_read = frame_length * 3  # 512 * 3 = 1536
+
+            logger.info(f"唤醒词检测初始化成功，设备采样率：{self.device_rate}Hz，处理采样率：{self.processing_rate}Hz，帧长：{frame_length}，每次读取：{self.frames_per_read}帧，预缓冲：{self.pre_buffer_duration}秒")
             return True
 
         except Exception as e:
@@ -97,14 +115,14 @@ class PorcupineWakeWordDetector:
             return False
 
         try:
-            # Open audio stream
+            # 打开音频流 - 使用设备的实际采样率
             self.stream = self.audio.open(
-                input_device_index=2,
-                rate=self.porcupine.sample_rate,
+                input_device_index=2,  # 使用指定的USB麦克风
+                rate=self.device_rate,
                 channels=1,
                 format=pyaudio.paInt16,
                 input=True,
-                frames_per_buffer=self.porcupine.frame_length
+                frames_per_buffer=self.frames_per_read
             )
 
             # Set running flag
@@ -188,18 +206,25 @@ class PorcupineWakeWordDetector:
                     continue
 
                 try:
-                    # Read audio data
-                    pcm = self.stream.read(self.porcupine.frame_length, exception_on_overflow=False)
+                    # 读取音频数据（48kHz）
+                    raw_data = self.stream.read(self.frames_per_read, exception_on_overflow=False)
 
-                    # Save to pre-buffer
-                    self.pre_buffer.append(pcm)
+                    # 重采样 48000 → 16000
+                    resampled = audioop.ratecv(raw_data, 2, 1, self.device_rate, self.processing_rate, None)[0]
+
+                    # 保存重采样后的数据到预缓冲区
+                    self.pre_buffer.append(resampled)
 
                     # Maintain pre-buffer size
                     while len(self.pre_buffer) > self.pre_buffer_size:
                         self.pre_buffer.pop(0)
 
-                    # Process audio data
-                    pcm_unpacked = struct.unpack_from("h" * self.porcupine.frame_length, pcm)
+                    # 转成 short/int16 list（Porcupine 要求）
+                    pcm_unpacked = list(struct.unpack('<' + 'h' * (len(resampled) // 2), resampled))
+
+                    # 检查PCM长度是否匹配
+                    if len(pcm_unpacked) != self.porcupine.frame_length:
+                        continue
 
                     # Detect wake word
                     result = self.porcupine.process(pcm_unpacked)
