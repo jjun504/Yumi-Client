@@ -12,8 +12,8 @@
     },
     "wake_word": {
         "enabled": true,
-        "api_key": "tV/I+5UlIqmlSAuPP9/rJeTB61uVhvSYJynnqGc9DzVoRMV8Sl+3RQ==",
-        "keyword_path": "wakeword_source/hello_chris.ppn",
+        "api_key": "t3m7HIoZMij6ckGwQlNwq41olJVIWTYVlH81lSjyt792u6nC8kFjLw==",
+        "keyword_path": "wakeword_source/hello_chris_pi.ppn",
         "sensitivity": 0.5
     },
     "audio_settings": {

@@ -63,7 +63,7 @@ def load_config_from_file():
                 "wake_word": {
                     "enabled": True,
                     "api_key": "engq+3lVOO74PHIKEFTW0/d17wc9gVarMZWkjXZgxvGbqPV2q58koA==",
-                    "keyword_path": "wakeword_source/hello_chris.ppn",
+                    "keyword_path": "wakeword_source/hello_chris_pi.ppn",
                     "sensitivity": 0.5
                 },
 
