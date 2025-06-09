@@ -3,12 +3,12 @@
         "device_id": "yumi006",
         "password": "654321",
         "user_id": "user001",
-        "boot_time": "2025-06-08 17:21:15",
+        "boot_time": "2025-06-09 20:47:42",
         "model": "raspberry_pi",
         "version": "1.0.0",
         "log_level": "DEBUG",
         "status": "offline",
-        "last_update": 1749374475.998076
+        "last_update": 1749473262.0932248
     },
     "wake_word": {
         "enabled": true,
