@@ -15,6 +15,7 @@ import sys
 import struct
 import wave
 import argparse
+from scipy import signal as scipy_signal
 
 # Import custom modules
 from music_player import MusicPlayer, MPV_AVAILABLE
@@ -69,9 +70,12 @@ def load_config_from_file():
 
                 # Audio settings
                 "audio_settings": {
-                    "sample_rate": 24000,
+                    "mic_sample_rate": 48000,  # 麦克风原生采样率
+                    "sample_rate": 24000,      # 传输采样率（保持与服务器兼容）
+                    "wake_word_sample_rate": 16000,  # 唤醒词检测采样率
                     "channels": 1,
-                    "chunk_size": 960,  # Optimized for Opus encoder recommended frame size
+                    "chunk_size": 960,  # 优化为Opus编码器推荐的帧大小
+                    "mic_chunk_size": 1920,  # 麦克风块大小（48000Hz对应的块大小）
                     "format": "int16",
                     "general_volume": 50,
                     "music_volume": 50,
@@ -218,6 +222,100 @@ class PiClient:
         # Create audio save directory (if debug enabled)
         if CONFIG["debug"]["enabled"]:
             os.makedirs(CONFIG["recording"]["save_path"], exist_ok=True)
+
+        # 采样率转换相关变量
+        self.mic_sample_rate = CONFIG["audio_settings"]["mic_sample_rate"]
+        self.target_sample_rate = CONFIG["audio_settings"]["sample_rate"]
+        self.wake_word_sample_rate = CONFIG["audio_settings"]["wake_word_sample_rate"]
+
+        # 计算采样率转换比例
+        self.resample_ratio_recording = self.target_sample_rate / self.mic_sample_rate
+        self.resample_ratio_wake_word = self.wake_word_sample_rate / self.mic_sample_rate
+
+        # 音频缓冲区（用于采样率转换）
+        self.audio_buffer_recording = np.array([], dtype=np.int16)
+        self.audio_buffer_wake_word = np.array([], dtype=np.int16)
+
+        logger.info(f"音频配置: 麦克风采样率={self.mic_sample_rate}Hz, 录音采样率={self.target_sample_rate}Hz, 唤醒词采样率={self.wake_word_sample_rate}Hz")
+
+    def _resample_audio(self, audio_data, original_rate, target_rate):
+        """
+        使用scipy进行音频重采样
+
+        Args:
+            audio_data: 原始音频数据 (numpy array)
+            original_rate: 原始采样率
+            target_rate: 目标采样率
+
+        Returns:
+            重采样后的音频数据 (numpy array)
+        """
+        try:
+            if original_rate == target_rate:
+                return audio_data
+
+            # 计算重采样比例
+            num_samples = int(len(audio_data) * target_rate / original_rate)
+
+            # 使用scipy的resample函数进行重采样
+            resampled = scipy_signal.resample(audio_data, num_samples)
+
+            # 确保数据类型为int16
+            resampled = np.clip(resampled, -32768, 32767).astype(np.int16)
+
+            return resampled
+
+        except Exception as e:
+            logger.error(f"音频重采样失败: {e}")
+            return audio_data
+
+    def _process_mic_audio_for_recording(self, audio_data):
+        """
+        处理麦克风音频数据用于录音传输
+        将48kHz音频转换为24kHz
+
+        Args:
+            audio_data: 原始音频数据 (bytes)
+
+        Returns:
+            处理后的音频数据 (bytes)，如果没有足够数据则返回None
+        """
+        try:
+            # 将字节转换为numpy数组
+            audio_array = np.frombuffer(audio_data, dtype=np.int16)
+
+            # 添加到缓冲区
+            self.audio_buffer_recording = np.concatenate([self.audio_buffer_recording, audio_array])
+
+            # 计算需要多少样本才能产生一个目标块
+            target_chunk_size = CONFIG["audio_settings"]["chunk_size"]
+            required_samples = int(target_chunk_size / self.resample_ratio_recording)
+
+            if len(self.audio_buffer_recording) >= required_samples:
+                # 提取所需的样本
+                samples_to_process = self.audio_buffer_recording[:required_samples]
+                self.audio_buffer_recording = self.audio_buffer_recording[required_samples:]
+
+                # 重采样
+                resampled = self._resample_audio(samples_to_process, self.mic_sample_rate, self.target_sample_rate)
+
+                # 确保输出大小正确
+                if len(resampled) != target_chunk_size:
+                    # 如果大小不匹配，进行调整
+                    if len(resampled) > target_chunk_size:
+                        resampled = resampled[:target_chunk_size]
+                    else:
+                        # 填充零
+                        padding = np.zeros(target_chunk_size - len(resampled), dtype=np.int16)
+                        resampled = np.concatenate([resampled, padding])
+
+                return resampled.tobytes()
+
+            return None
+
+        except Exception as e:
+            logger.error(f"处理录音音频数据失败: {e}")
+            return None
 
     def _generate_derived_config(self):
         """Generate derived configuration"""
@@ -1208,19 +1306,19 @@ class PiClient:
             return 0.0
 
     def _record_audio_worker(self):
-        """Recording worker thread"""
+        """录音工作线程 - 支持48kHz麦克风采样率转换"""
         try:
             # Open microphone stream
             self.mic_stream = self.audio.open(
                 format=pyaudio.paInt16,
                 input_device_index=2,
                 channels=CONFIG["audio_settings"]["channels"],
-                rate=CONFIG["audio_settings"]["sample_rate"],
+                rate=CONFIG["audio_settings"]["mic_sample_rate"],  # 使用48kHz
                 input=True,
-                frames_per_buffer=CONFIG["audio_settings"]["chunk_size"]
+                frames_per_buffer=CONFIG["audio_settings"]["mic_chunk_size"]  # 使用更大的块大小
             )
 
-            logger.info(f"Microphone opened, sample rate: {CONFIG['audio_settings']['sample_rate']}Hz, channels: {CONFIG['audio_settings']['channels']}")
+            logger.info(f"麦克风已打开，采样率: {CONFIG['audio_settings']['mic_sample_rate']}Hz, 通道数: {CONFIG['audio_settings']['channels']}")
 
             # Silence detection variables
             silence_start = None
@@ -1237,11 +1335,18 @@ class PiClient:
                     logger.info("Reached maximum recording duration, stopping recording")
                     break
 
-                # Read audio data
-                audio_data = self.mic_stream.read(CONFIG["audio_settings"]["chunk_size"], exception_on_overflow=False)
+                # 读取音频数据（48kHz）
+                raw_audio_data = self.mic_stream.read(CONFIG["audio_settings"]["mic_chunk_size"], exception_on_overflow=False)
 
-                # Calculate audio energy
-                energy = self._calculate_energy(audio_data)
+                # 处理音频数据用于录音传输（48kHz -> 24kHz）
+                processed_audio_data = self._process_mic_audio_for_recording(raw_audio_data)
+
+                if processed_audio_data is None:
+                    # 缓冲区中数据不足，继续读取
+                    continue
+
+                # 计算音频能量（使用处理后的数据）
+                energy = self._calculate_energy(processed_audio_data)
 
                 # Detect if there's speech
                 if energy >= CONFIG["recording"]["silence_threshold"]:
@@ -1276,8 +1381,8 @@ class PiClient:
                             logger.info(f"Silence detected for {silence_duration:.2f} seconds, exceeding {threshold_name} ({silence_threshold}s), stopping recording")
                             break
 
-                # Use Opus encoding
-                encoded_data = self.encoder.encode(audio_data, CONFIG["audio_settings"]["chunk_size"])
+                # 使用Opus编码（编码24kHz的数据）
+                encoded_data = self.encoder.encode(processed_audio_data, CONFIG["audio_settings"]["chunk_size"])
 
                 # Send via UDP
                 self._send_audio_udp(encoded_data)
@@ -1287,7 +1392,7 @@ class PiClient:
                     timestamp = time.strftime("%Y%m%d_%H%M%S")
                     filename = f"{CONFIG['recording']['save_path']}/{timestamp}_{self.sequence_number}.raw"
                     with open(filename, 'wb') as f:
-                        f.write(audio_data)
+                        f.write(processed_audio_data)  # 保存处理后的数据
 
         except Exception as e:
             logger.error(f"Error during recording: {e}")
