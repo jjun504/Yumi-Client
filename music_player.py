@@ -1,53 +1,53 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-音乐播放模块 - 负责音乐播放功能
-基于pi_mpv_player.py实现
+Music Player Module - Responsible for music playback functionality
+Based on pi_mpv_player.py implementation
 """
 
 import logging
 import threading
 import time
 
-# 尝试导入 mpv 和 yt_dlp 库，用于音乐播放
+# Try to import mpv and yt_dlp libraries for music playback
 try:
     import mpv
     from yt_dlp import YoutubeDL
     MPV_AVAILABLE = True
 except ImportError:
     MPV_AVAILABLE = False
-    logging.warning("mpv 或 yt_dlp 库未安装，音乐播放功能将被禁用")
+    logging.warning("mpv or yt_dlp library not installed, music playback functionality will be disabled")
 
-# 配置日志
+# Configure logging
 logger = logging.getLogger("MusicPlayer")
 
 class MusicPlayer:
-    """音乐播放器类 - 基于pi_mpv_player.py实现"""
+    """Music Player Class - Based on pi_mpv_player.py implementation"""
 
     def __init__(self):
-        """初始化音乐播放器"""
+        """Initialize music player"""
         self.player = None
         self.is_playing = False
         self.current_title = None
         self.monitor_thread = None
-        self.completion_callback = None  # 歌曲完成时的回调函数
-        self.manually_stopped = False  # 标记是否手动停止
+        self.completion_callback = None  # Callback function when song completes
+        self.manually_stopped = False  # Flag to mark if manually stopped
 
     def get_direct_stream_url(self, url):
         """
-        从URL（包括YouTube URL）获取直接可播放的音频流URL
+        Get direct playable audio stream URL from URL (including YouTube URL)
 
         Args:
-            url: 原始URL，可以是YouTube链接或直接音频流URL
+            url: Original URL, can be YouTube link or direct audio stream URL
 
         Returns:
-            tuple: (直接流URL, 标题)
+            tuple: (direct stream URL, title)
         """
-        # 检查是否是YouTube链接
+        # Check if it's a YouTube link
         if 'youtube.com' not in url and 'youtu.be' not in url:
             return url, None
 
-        logger.info(f"正在解析YouTube URL: {url}")
+        logger.info(f"Parsing YouTube URL: {url}")
 
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -62,84 +62,84 @@ class MusicPlayer:
                 info = ydl.extract_info(url, download=False)
 
                 if 'url' in info:
-                    logger.info("成功获取直接音频流URL")
+                    logger.info("Successfully obtained direct audio stream URL")
                     return info['url'], info.get('title', 'Unknown')
                 else:
-                    logger.error("无法获取直接音频流URL")
+                    logger.error("Unable to obtain direct audio stream URL")
                     return None, None
         except Exception as e:
-            logger.error(f"解析URL时出错: {str(e)}")
+            logger.error(f"Error parsing URL: {str(e)}")
             return None, None
 
     def play_url(self, url, volume=50):
         """
-        播放URL（可以是YouTube链接或直接音频流URL）
+        Play URL (can be YouTube link or direct audio stream URL)
 
         Args:
-            url: 音频URL
-            volume: 音量（0-100）
+            url: Audio URL
+            volume: Volume (0-100)
 
         Returns:
-            bool: 是否成功开始播放
+            bool: Whether playback started successfully
         """
-        # 停止当前播放
+        # Stop current playback
         self.stop_playback()
 
-        # 获取直接流URL（如果是YouTube链接）
+        # Get direct stream URL (if it's a YouTube link)
         stream_url, title = self.get_direct_stream_url(url)
         if not stream_url:
-            logger.error(f"无法获取音频流URL: {url}")
+            logger.error(f"Unable to get audio stream URL: {url}")
             return False
 
         try:
-            # 创建MPV实例
+            # Create MPV instance
             self.player = mpv.MPV(video=False, terminal=False, volume=volume)
 
-            # 播放音频
-            logger.info(f"开始播放: {title if title else stream_url}")
+            # Play audio
+            logger.info(f"Starting playback: {title if title else stream_url}")
             self.player.play(stream_url)
             self.player.wait_until_playing()
             self.is_playing = True
             self.current_title = title
 
-            # 重置手动停止标志
+            # Reset manual stop flag
             self.manually_stopped = False
 
-            # 启动监控线程
+            # Start monitoring thread
             def monitor():
                 while self.player and self.is_playing:
                     try:
-                        # 检查播放器状态
+                        # Check player status
                         if self.player.core_idle:
-                            # 播放器空闲，可能是播放完成或出错
+                            # Player is idle, possibly playback completed or error occurred
                             break
 
-                        # 检查是否被暂停（但不是播放完成）
+                        # Check if paused (but not playback completed)
                         if hasattr(self.player, 'pause') and self.player.pause:
-                            # 暂停状态，继续监控但不退出
+                            # Paused state, continue monitoring but don't exit
                             time.sleep(0.5)
                             continue
 
                         time.sleep(0.5)
                     except Exception as e:
-                        logger.error(f"监控线程出错: {e}")
+                        logger.error(f"Monitoring thread error: {e}")
                         break
 
-                # 监控线程退出，检查是否是自然播放完成
+                # Monitoring thread exits, check if it's natural playback completion
                 if self.is_playing and not self.manually_stopped:
-                    logger.info("歌曲自然播放完成")
+                    logger.info("Song naturally completed playback")
                     self.is_playing = False
-                    finished_title = self.current_title  # 保存完成的歌曲标题
+                    finished_title = self.current_title  # Save completed song title
                     self.current_title = None
 
-                    # 调用完成回调函数
+                    # Call completion callback function
                     if self.completion_callback:
                         try:
                             self.completion_callback(finished_title)
                         except Exception as e:
-                            logger.error(f"调用歌曲完成回调时出错: {e}")
+                            logger.error(f"Error calling song completion callback: {e}")
                 else:
-                    logger.debug("监控线程退出，但不是自然播放完成（手动停止或暂停）")
+                    logger.debug("Monitoring thread exited, but not natural playback completion (manually stopped or paused)")
 
             self.monitor_thread = threading.Thread(target=monitor)
             self.monitor_thread.daemon = True
@@ -148,25 +148,25 @@ class MusicPlayer:
             return True
 
         except Exception as e:
-            logger.error(f"播放出错: {str(e)}")
+            logger.error(f"Playback error: {str(e)}")
             self.is_playing = False
             return False
 
     def stop_playback(self):
-        """停止当前播放"""
+        """Stop current playback"""
         if self.player and self.is_playing:
             try:
-                # 记录当前标题（如果有）
+                # Record current title (if any)
                 title = self.current_title
-                logger.info(f"手动停止播放: {title if title else '未知标题'}")
+                logger.info(f"Manually stopping playback: {title if title else 'Unknown title'}")
 
-                # 设置手动停止标志
+                # Set manual stop flag
                 self.manually_stopped = True
 
                 self.player.terminate()
-                logger.info("播放已停止")
+                logger.info("Playback stopped")
             except Exception as e:
-                logger.error(f"停止播放时出错: {str(e)}")
+                logger.error(f"Error stopping playback: {str(e)}")
             finally:
                 self.is_playing = False
                 self.current_title = None
@@ -174,104 +174,104 @@ class MusicPlayer:
 
     def set_volume(self, volume):
         """
-        设置音量
+        Set volume
 
         Args:
-            volume: 音量（0-100）
+            volume: Volume (0-100)
 
         Returns:
-            bool: 是否成功设置音量
+            bool: Whether volume was set successfully
         """
         if not self.player:
-            logger.warning("没有活动的播放器，无法设置音量")
+            logger.warning("No active player, cannot set volume")
             return False
 
         try:
             self.player.volume = volume
-            logger.info(f"音量已设置为: {volume}")
+            logger.info(f"Volume set to: {volume}")
             return True
         except Exception as e:
-            logger.error(f"设置音量时出错: {str(e)}")
+            logger.error(f"Error setting volume: {str(e)}")
             return False
 
     def pause_playback(self):
         """
-        暂停当前播放
+        Pause current playback
 
         Returns:
-            bool: 是否成功暂停播放
+            bool: Whether playback was paused successfully
         """
         if not self.player or not self.is_playing:
-            logger.warning("没有活动的播放或已经暂停，无法暂停")
+            logger.warning("No active playback or already paused, cannot pause")
             return False
 
         try:
-            # 记录当前标题（如果有）
+            # Record current title (if any)
             title = self.current_title
-            logger.info(f"手动暂停播放: {title if title else '未知标题'}")
+            logger.info(f"Manually pausing playback: {title if title else 'Unknown title'}")
 
-            # 设置手动停止标志，防止触发下一首歌曲
+            # Set manual stop flag to prevent triggering next song
             self.manually_stopped = True
 
             self.player.pause = True
-            # 注意：我们不设置 is_playing = False，因为我们仍然认为音乐在"播放"状态
-            # 只是暂停了。这样可以确保恢复播放时能够正确恢复状态。
-            logger.info("播放已暂停")
+            # Note: We don't set is_playing = False, because we still consider music in "playing" state
+            # just paused. This ensures proper state recovery when resuming playback.
+            logger.info("Playback paused")
             return True
         except Exception as e:
-            logger.error(f"暂停播放时出错: {str(e)}")
+            logger.error(f"Error pausing playback: {str(e)}")
             return False
 
     def resume_playback(self):
         """
-        恢复暂停的播放
+        Resume paused playback
 
         Returns:
-            bool: 是否成功恢复播放
+            bool: Whether playback was resumed successfully
         """
         if not self.player:
-            logger.warning("没有活动的播放器，无法恢复播放")
+            logger.warning("No active player, cannot resume playback")
             return False
 
         try:
-            # 记录当前标题（如果有）
+            # Record current title (if any)
             title = self.current_title
-            logger.info(f"恢复播放: {title if title else '未知标题'}")
+            logger.info(f"Resuming playback: {title if title else 'Unknown title'}")
 
             self.player.pause = False
-            # 确保设置 is_playing 状态为 true
+            # Ensure is_playing status is set to true
             self.is_playing = True
 
-            # 重置手动停止标志，因为现在恢复播放了
+            # Reset manual stop flag since we're resuming playback now
             self.manually_stopped = False
 
-            # 确保标题信息不会丢失
+            # Ensure title information is not lost
             if not self.current_title and title:
                 self.current_title = title
-                logger.info(f"恢复标题信息: {title}")
+                logger.info(f"Restored title information: {title}")
 
-            logger.info("播放已恢复")
+            logger.info("Playback resumed")
             return True
         except Exception as e:
-            logger.error(f"恢复播放时出错: {str(e)}")
+            logger.error(f"Error resuming playback: {str(e)}")
             return False
 
     def set_completion_callback(self, callback):
         """
-        设置歌曲完成时的回调函数
+        Set callback function for when song completes
 
         Args:
-            callback: 回调函数，接收一个参数（完成的歌曲标题）
+            callback: Callback function that receives one parameter (completed song title)
         """
         self.completion_callback = callback
-        logger.debug("歌曲完成回调函数已设置")
+        logger.debug("Song completion callback function has been set")
 
     def get_status(self):
         """
-        获取播放状态
+        Get playback status
 
         Returns:
-            dict: 包含播放状态的字典
+            dict: Dictionary containing playback status
         """
         is_paused = False
         if self.player:

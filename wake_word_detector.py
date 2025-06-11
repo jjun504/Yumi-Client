@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-唤醒词检测模块 - 负责唤醒词检测功能
-使用Porcupine实现
+Wake word detection module - responsible for wake word detection functionality
+Implemented using Porcupine
 """
 
 import logging
@@ -12,39 +12,39 @@ import struct
 import pyaudio
 from queue import Queue
 
-# 尝试导入 pvporcupine 库
+# Try to import pvporcupine library
 try:
     import pvporcupine
     PORCUPINE_AVAILABLE = True
 except ImportError:
     PORCUPINE_AVAILABLE = False
-    logging.warning("pvporcupine 库未安装，唤醒词功能将被禁用")
+    logging.warning("pvporcupine library not installed, wake word functionality will be disabled")
 
-# 配置日志
+# Configure logging
 logger = logging.getLogger("WakeWordDetector")
 
 class PorcupineWakeWordDetector:
-    """Porcupine唤醒词检测器"""
+    """Porcupine wake word detector"""
 
     def __init__(self):
-        """初始化唤醒词检测器"""
-        self.porcupine = None          # Porcupine实例
-        self.audio = None              # PyAudio实例
-        self.stream = None             # 音频流
-        self.detection_thread = None   # 检测线程
-        self.running = False           # 运行标志
-        self.paused = False            # 暂停标志
-        self.callback = None           # 唤醒回调函数
-        self.audio_queue = Queue(maxsize=100)  # 音频数据队列(用于保存唤醒前的音频)
-        self.lock = threading.Lock()   # 线程锁
-        self.pre_buffer = []           # 预缓冲区，存储唤醒前的音频
-        self.pre_buffer_duration = 0   # 预缓冲时长(秒)
-        self.config = None             # 配置
+        """Initialize wake word detector"""
+        self.porcupine = None          # Porcupine instance
+        self.audio = None              # PyAudio instance
+        self.stream = None             # Audio stream
+        self.detection_thread = None   # Detection thread
+        self.running = False           # Running flag
+        self.paused = False            # Pause flag
+        self.callback = None           # Wake callback function
+        self.audio_queue = Queue(maxsize=100)  # Audio data queue (for saving audio before wake)
+        self.lock = threading.Lock()   # Thread lock
+        self.pre_buffer = []           # Pre-buffer, stores audio before wake
+        self.pre_buffer_duration = 0   # Pre-buffer duration (seconds)
+        self.config = None             # Configuration
 
     def initialize(self, config):
-        """初始化Porcupine唤醒词检测器"""
+        """Initialize Porcupine wake word detector"""
         if not PORCUPINE_AVAILABLE:
-            logger.error("无法初始化唤醒词检测器：pvporcupine库未安装")
+            logger.error("Cannot initialize wake word detector: pvporcupine library not installed")
             return False
 
         try:
@@ -55,49 +55,49 @@ class PorcupineWakeWordDetector:
             sensitivity = config.get('porcupine_sensitivity', 0.5)
 
             if not access_key or not keyword_paths:
-                logger.error("缺少Porcupine配置：access_key或keyword_paths")
+                logger.error("Missing Porcupine configuration: access_key or keyword_paths")
                 return False
 
-            # 确保keyword_paths是列表
+            # Ensure keyword_paths is a list
             if not isinstance(keyword_paths, list):
                 keyword_paths = [keyword_paths]
 
-            # 创建与关键词数量相匹配的敏感度列表
+            # Create sensitivity list matching the number of keywords
             sensitivities = [float(sensitivity)] * len(keyword_paths)
 
-            logger.info(f"初始化Porcupine，关键词路径：{keyword_paths}，敏感度：{sensitivities}")
+            logger.info(f"Initialize Porcupine, keyword paths: {keyword_paths}, sensitivities: {sensitivities}")
 
-            # 创建Porcupine实例
+            # Create Porcupine instance
             self.porcupine = pvporcupine.create(
                 access_key=access_key,
                 keyword_paths=keyword_paths,
                 sensitivities=sensitivities
             )
 
-            # 初始化音频
+            # Initialize audio
             self.audio = pyaudio.PyAudio()
 
-            # 计算预缓冲区大小
+            # Calculate pre-buffer size
             sample_rate = self.porcupine.sample_rate
             frame_length = self.porcupine.frame_length
             frames_per_second = sample_rate / frame_length
             self.pre_buffer_size = int(frames_per_second * self.pre_buffer_duration)
 
-            logger.info(f"唤醒词检测初始化成功，采样率：{sample_rate}Hz，帧长：{frame_length}，预缓冲：{self.pre_buffer_duration}秒")
+            logger.info(f"Wake word detection initialized successfully, sample rate: {sample_rate}Hz, frame length: {frame_length}, pre-buffer: {self.pre_buffer_duration}s")
             return True
 
         except Exception as e:
-            logger.error(f"初始化唤醒词检测器失败：{e}")
+            logger.error(f"Failed to initialize wake word detector: {e}")
             return False
 
     def start_detection(self):
-        """启动唤醒词检测"""
+        """Start wake word detection"""
         if not PORCUPINE_AVAILABLE or not self.porcupine:
-            logger.error("无法启动唤醒词检测：未初始化")
+            logger.error("Cannot start wake word detection: not initialized")
             return False
 
         try:
-            # 打开音频流
+            # Open audio stream
             self.stream = self.audio.open(
                 # input_device_index=0,
                 rate=self.porcupine.sample_rate,
@@ -107,32 +107,32 @@ class PorcupineWakeWordDetector:
                 frames_per_buffer=self.porcupine.frame_length
             )
 
-            # 设置运行标志
+            # Set running flag
             self.running = True
             self.paused = False
 
-            # 创建并启动检测线程
+            # Create and start detection thread
             self.detection_thread = threading.Thread(target=self._detection_worker)
             self.detection_thread.daemon = True
             self.detection_thread.start()
 
-            logger.info("唤醒词检测已启动")
+            logger.info("Wake word detection started")
             return True
 
         except Exception as e:
-            logger.error(f"启动唤醒词检测失败：{e}")
+            logger.error(f"Failed to start wake word detection: {e}")
             return False
 
     def stop_detection(self):
-        """停止唤醒词检测"""
+        """Stop wake word detection"""
         with self.lock:
             self.running = False
 
-        # 等待线程结束
+        # Wait for thread to end
         if self.detection_thread and self.detection_thread.is_alive():
             self.detection_thread.join(timeout=2.0)
 
-        # 关闭音频流
+        # Close audio stream
         if self.stream:
             try:
                 self.stream.stop_stream()
@@ -141,96 +141,96 @@ class PorcupineWakeWordDetector:
             except:
                 pass
 
-        logger.info("唤醒词检测已停止")
+        logger.info("Wake word detection stopped")
 
     def pause_detection(self):
-        """暂停唤醒词检测"""
+        """Pause wake word detection"""
         with self.lock:
             self.paused = True
 
-        # 暂停音频流
+        # Pause audio stream
         if self.stream:
             try:
                 self.stream.stop_stream()
             except:
                 pass
 
-        logger.info("唤醒词检测已暂停")
+        logger.info("Wake word detection paused")
 
     def resume_detection(self):
-        """恢复唤醒词检测"""
+        """Resume wake word detection"""
         with self.lock:
             self.paused = False
 
-        # 恢复音频流
+        # Resume audio stream
         if self.stream:
             try:
                 self.stream.start_stream()
             except:
                 pass
 
-        logger.info("唤醒词检测已恢复")
+        logger.info("Wake word detection resumed")
 
     def set_callback(self, callback):
-        """设置唤醒回调函数"""
+        """Set wake callback function"""
         self.callback = callback
 
     def _detection_worker(self):
-        """唤醒词检测工作线程"""
+        """Wake word detection worker thread"""
         try:
-            # 清空预缓冲区
+            # Clear pre-buffer
             self.pre_buffer.clear()
 
             while self.running:
-                # 检查是否暂停
+                # Check if paused
                 if self.paused:
                     time.sleep(0.1)
                     continue
 
                 try:
-                    # 读取音频数据
+                    # Read audio data
                     pcm = self.stream.read(self.porcupine.frame_length, exception_on_overflow=False)
 
-                    # 保存到预缓冲区
+                    # Save to pre-buffer
                     self.pre_buffer.append(pcm)
 
-                    # 保持预缓冲区大小
+                    # Maintain pre-buffer size
                     while len(self.pre_buffer) > self.pre_buffer_size:
                         self.pre_buffer.pop(0)
 
-                    # 处理音频数据
+                    # Process audio data
                     pcm_unpacked = struct.unpack_from("h" * self.porcupine.frame_length, pcm)
 
-                    # 检测唤醒词
+                    # Detect wake word
                     result = self.porcupine.process(pcm_unpacked)
 
-                    # 如果检测到唤醒词
+                    # If wake word detected
                     if result >= 0:
-                        logger.info(f"检测到唤醒词！索引：{result}")
+                        logger.info(f"Wake word detected! Index: {result}")
 
-                        # 将预缓冲区的音频放入队列
+                        # Put pre-buffer audio into queue
                         for frame in self.pre_buffer:
                             self.audio_queue.put(frame)
 
-                        # 执行回调
+                        # Execute callback
                         if self.callback:
-                            # 在新线程中执行回调，避免阻塞检测线程
+                            # Execute callback in new thread to avoid blocking detection thread
                             threading.Thread(target=self.callback).start()
 
                 except Exception as e:
-                    logger.error(f"唤醒词检测出错：{e}")
+                    logger.error(f"Wake word detection error: {e}")
                     time.sleep(0.1)
 
         except Exception as e:
-            logger.error(f"唤醒词检测线程异常：{e}")
+            logger.error(f"Wake word detection thread exception: {e}")
         finally:
-            logger.info("唤醒词检测线程已结束")
+            logger.info("Wake word detection thread ended")
 
     def get_audio_data(self):
-        """获取保存的音频数据"""
+        """Get saved audio data"""
         frames = []
 
-        # 从队列中获取所有数据
+        # Get all data from queue
         while not self.audio_queue.empty():
             try:
                 frames.append(self.audio_queue.get_nowait())
@@ -241,18 +241,18 @@ class PorcupineWakeWordDetector:
         return frames
 
     def cleanup(self):
-        """清理资源"""
-        # 停止检测
+        """Clean up resources"""
+        # Stop detection
         self.stop_detection()
 
-        # 释放Porcupine资源
+        # Release Porcupine resources
         if self.porcupine:
             self.porcupine.delete()
             self.porcupine = None
 
-        # 释放PyAudio资源
+        # Release PyAudio resources
         if self.audio:
             self.audio.terminate()
             self.audio = None
 
-        logger.info("唤醒词检测器资源已清理")
+        logger.info("Wake word detector resources cleaned up")

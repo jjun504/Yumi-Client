@@ -3,17 +3,17 @@
         "device_id": "yumi006",
         "password": "654321",
         "user_id": "user001",
-        "boot_time": "2025-06-09 20:47:42",
+        "boot_time": "2025-06-11 16:32:56",
         "model": "raspberry_pi",
         "version": "1.0.0",
         "log_level": "DEBUG",
         "status": "offline",
-        "last_update": 1749473262.0932248
+        "last_update": 1749630776.2425125
     },
     "wake_word": {
         "enabled": true,
-        "api_key": "t3m7HIoZMij6ckGwQlNwq41olJVIWTYVlH81lSjyt792u6nC8kFjLw==",
-        "keyword_path": "wakeword_source/hello_chris_pi.ppn",
+        "api_key": "/ikUn+X7ddc0c2RxIKZknkhU5R75/d8SflJ7XJQoMV7xztAGFoEecg==",
+        "keyword_path": "wakeword_source/hello_chris.ppn",
         "sensitivity": 0.5
     },
     "audio_settings": {
