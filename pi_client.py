@@ -1222,6 +1222,7 @@ class PiClient:
             # Open microphone stream
             self.mic_stream = self.audio.open(
                 format=pyaudio.paInt16,
+                input_device_index=2,
                 channels=CONFIG["audio_settings"]["channels"],
                 rate=CONFIG["audio_settings"]["sample_rate"],
                 input=True,

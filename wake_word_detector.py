@@ -99,7 +99,7 @@ class PorcupineWakeWordDetector:
         try:
             # Open audio stream
             self.stream = self.audio.open(
-                # input_device_index=0,
+                input_device_index=2,
                 rate=self.porcupine.sample_rate,
                 channels=1,
                 format=pyaudio.paInt16,

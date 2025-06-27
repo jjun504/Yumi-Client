@@ -3,17 +3,17 @@
         "device_id": "yumi006",
         "password": "654321",
         "user_id": "user001",
-        "boot_time": "2025-06-11 16:32:56",
+        "boot_time": "2025-06-26 05:58:34",
         "model": "raspberry_pi",
         "version": "1.0.0",
         "log_level": "DEBUG",
         "status": "offline",
-        "last_update": 1749630776.2425125
+        "last_update": 1750913914.1142695
     },
     "wake_word": {
         "enabled": true,
-        "api_key": "/ikUn+X7ddc0c2RxIKZknkhU5R75/d8SflJ7XJQoMV7xztAGFoEecg==",
-        "keyword_path": "wakeword_source/hello_chris.ppn",
+        "api_key": "SUumpMs6ZWjduBTiD9nZmW3knZjn1NlNFIvO4Sux9h0AKaB/6EMKhw==",
+        "keyword_path": "wakeword_source/hello_chris_pi.ppn",
         "sensitivity": 0.5
     },
     "audio_settings": {
@@ -35,7 +35,7 @@
         "topic_prefix": "smart0337187"
     },
     "network": {
-        "server_ip": "10.168.35.15",
+        "server_ip": "192.168.175.102",
         "server_udp_port": 8884,
         "server_udp_receive_port": 8885,
         "stt_bridge_ip": null,
