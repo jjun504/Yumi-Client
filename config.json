@@ -1,19 +1,19 @@
 {
     "system": {
-        "device_id": "yumi006",
+        "device_id": "yumi100",
         "password": "654321",
         "user_id": "user001",
-        "boot_time": "2025-06-26 05:58:34",
+        "boot_time": "2025-07-01 08:49:00",
         "model": "raspberry_pi",
         "version": "1.0.0",
         "log_level": "DEBUG",
         "status": "offline",
-        "last_update": 1750913914.1142695
+        "last_update": 1751330940.07121
     },
     "wake_word": {
-        "enabled": true,
+        "enabled": false,
         "api_key": "SUumpMs6ZWjduBTiD9nZmW3knZjn1NlNFIvO4Sux9h0AKaB/6EMKhw==",
-        "keyword_path": "wakeword_source/hello_chris_pi.ppn",
+        "keyword_path": "wakeword_source/hello_chris.ppn",
         "sensitivity": 0.5
     },
     "audio_settings": {
@@ -21,7 +21,7 @@
         "channels": 1,
         "chunk_size": 960,
         "format": "int16",
-        "general_volume": 63,
+        "general_volume": 20,
         "music_volume": 50,
         "notification_volume": 50,
         "wake_sound_path": "sound/pvwake.wav"
@@ -56,8 +56,8 @@
     "debug": {
         "enabled": false
     },
-    "command_topic": "smart0337187/client/command/yumi006",
-    "audio_topic": "smart0337187/client/audio/yumi006",
-    "status_topic": "smart0337187/client/status/yumi006",
-    "config_topic": "smart0337187/client/config/yumi006"
+    "command_topic": "smart0337187/client/command/yumi100",
+    "audio_topic": "smart0337187/client/audio/yumi100",
+    "status_topic": "smart0337187/client/status/yumi100",
+    "config_topic": "smart0337187/client/config/yumi100"
 }

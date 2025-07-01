@@ -434,15 +434,6 @@ class PiClient:
         """MQTT disconnect callback"""
         logger.warning(f"Disconnected from MQTT broker, return code: {rc}")
 
-        # Try to publish offline status (although it may fail, it's worth trying)
-        try:
-            # Build status message
-            self._publish_status("offline")
-            time.sleep(1)  # Reduce wait time
-            logger.info("Published offline status")
-        except Exception as e:
-            logger.error(f"Failed to publish offline status: {e}")
-
         self.is_connected = False
 
         # If unexpected disconnect, try to reconnect
@@ -1786,7 +1777,12 @@ class PiClient:
 
         # Publish offline status
         if self.is_connected:
+            logger.info("Program is exiting normally, sending offline status to server")
             self._publish_status("offline")
+            # Give some time for the message to be sent
+            time.sleep(0.5)
+        else:
+            logger.info("MQTT not connected, skipping offline status notification")
 
         # Stop MQTT client
         if self.mqtt_client:
@@ -1859,7 +1855,7 @@ def signal_handler(sig, frame):
 if __name__ == "__main__":
     # Parse command line arguments - only keep device ID switching functionality
     parser = argparse.ArgumentParser(description="Optimized Pi Client")
-    parser.add_argument("--device-id", help="Device ID", default="yumi006")
+    parser.add_argument("--device-id", help="Device ID", default="yumi100")
     args = parser.parse_args()
 
     # Load configuration file first
