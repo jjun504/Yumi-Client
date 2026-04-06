@@ -44,7 +44,7 @@ A Raspberry Pi-based smart voice assistant client that supports wake word detect
 
 ### 1. Clone the Project
 ```bash
-git clone <repository-url>
+git clone https://github.com/YOUR_USERNAME/pi_client.git
 cd pi_client
 ```
 
@@ -68,7 +68,24 @@ sudo apt install mpv
 pip install python-mpv yt-dlp
 ```
 
-### 4. Audio Device Configuration
+### 4. Configuration File Setup
+
+This repository does **not** include `config.json` (it contains sensitive credentials). Copy the example file and fill in your values:
+
+```bash
+cp config.example.json config.json
+nano config.json
+```
+
+Key fields to fill in:
+- `system.device_id` — unique name for this device
+- `system.password` — device authentication password
+- `wake_word.api_key` — your Picovoice API key
+- `wake_word.keyword_path` — path to your `.ppn` wake word file
+- `network.server_ip` — IP address of your server
+- `mqtt.topic_prefix` / `mqtt.client_id_prefix` — choose unique values to avoid conflicts with other users on the public broker
+
+### 5. Audio Device Configuration
 
 #### Configure ALSA Audio Devices:
 ```bash
@@ -102,12 +119,16 @@ pcm.!default {
 ```
 
 ### 5. Wake Word Files
-Ensure wake word files exist:
-```bash
-# Check wake word files
-ls wakeword_source/
-# Should contain: hello_chris.ppn, hello_chris_pi.ppn
-```
+
+The `.ppn` wake word model files are bound to a specific Picovoice account and are not included in this repository. You need to generate your own:
+
+1. Create a free account at [Picovoice Console](https://console.picovoice.ai/)
+2. Create a custom wake word under **Wake Word > Porcupine**
+3. Download the `.ppn` file for **Raspberry Pi** (or your target platform)
+4. Place the file in the `wakeword_source/` directory
+5. Update `keyword_path` in `config.json` to match the filename
+
+Your free Picovoice API key is shown on the console dashboard — copy it into `wake_word.api_key` in `config.json`.
 
 ### 6. Audio Files
 Ensure notification sound files exist:
@@ -116,6 +137,21 @@ Ensure notification sound files exist:
 ls sound/
 # Should contain: pvwake.wav
 ```
+
+### 7. Native Library Dependencies
+
+The `libmpv/` and `opuslib/` directories are **not included** in the repository. Install the libraries via your system package manager:
+
+```bash
+# libmpv (required for music playback)
+sudo apt install libmpv-dev
+
+# Opus codec (required for audio encoding)
+sudo apt install libopus-dev
+pip install opuslib
+```
+
+On Windows (for development/testing), download the prebuilt `libmpv` DLL from [mpv.io/installation](https://mpv.io/installation/) and place the `.dll` in the `libmpv/` directory.
 
 ## Configuration
 
@@ -330,17 +366,17 @@ aplay test.wav
 ### Project Structure
 ```
 pi_client/
-├── pi_client.py          # Main program
-├── music_player.py       # Music playback module
-├── wake_word_detector.py # Wake word detection module
-├── config.json          # Configuration file
-├── requirements.txt     # Python dependencies
-├── sound/              # Audio files directory
-│   └── pvwake.wav     # Wake notification sound
-├── wakeword_source/    # Wake word files directory
-│   ├── hello_chris.ppn
-│   └── hello_chris_pi.ppn
-└── recordings/         # Recording files directory (debug mode)
+├── pi_client.py            # Main program
+├── music_player.py         # Music playback module
+├── wake_word_detector.py   # Wake word detection module
+├── config.example.json     # Configuration template (copy to config.json)
+├── config.json             # Your configuration (not in repo, gitignored)
+├── requirements.txt        # Python dependencies
+├── sound/                  # Audio files directory
+│   └── pvwake.wav          # Wake notification sound
+├── wakeword_source/        # Wake word files directory (*.ppn gitignored)
+│   └── your_wake_word.ppn  # Your Picovoice wake word model
+└── recordings/             # Recording files directory (debug mode, gitignored)
 ```
 
 ### Extension Development
@@ -390,12 +426,18 @@ The client uses the following MQTT topic structure:
 
 ## License
 
-[Add license information here]
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+
+**Third-party notices:**
+- Wake word detection powered by [Porcupine](https://github.com/Picovoice/porcupine) (Picovoice) — subject to [Picovoice Terms of Use](https://picovoice.ai/docs/terms-of-use/)
+- Music playback via [mpv](https://mpv.io/) and [yt-dlp](https://github.com/yt-dlp/yt-dlp)
 
 ## Contributing
 
 Issues and Pull Requests are welcome to improve the project.
 
-## Contact
+## Contact / Issues
 
-[Add contact information here]
+For questions, support, or collaboration opportunities, please reach out to me:
+
+Email: [chen.jun.xu@student.mmu.edu.my](mailto:chen.jun.xu@student.mmu.edu.my)

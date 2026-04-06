@@ -1,19 +1,19 @@
 {
     "system": {
-        "device_id": "yumi100",
-        "password": "654321",
-        "user_id": "user001",
-        "boot_time": "2025-08-15 22:11:37",
+        "device_id": "YOUR_DEVICE_ID",
+        "password": "YOUR_DEVICE_PASSWORD",
+        "user_id": "YOUR_USER_ID",
+        "boot_time": null,
         "model": "raspberry_pi",
         "version": "1.0.0",
         "log_level": "DEBUG",
         "status": "offline",
-        "last_update": 1755267526.7662718
+        "last_update": null
     },
     "wake_word": {
         "enabled": true,
-        "api_key": "SUumpMs6ZWjduBTiD9nZmW3knZjn1NlNFIvO4Sux9h0AKaB/6EMKhw==",
-        "keyword_path": "wakeword_source/hello_chris.ppn",
+        "api_key": "YOUR_PICOVOICE_API_KEY",
+        "keyword_path": "wakeword_source/your_wake_word_pi.ppn",
         "sensitivity": 0.5
     },
     "audio_settings": {
@@ -31,11 +31,11 @@
         "port": 1883,
         "username": null,
         "password": null,
-        "client_id_prefix": "smart_assistant_87",
-        "topic_prefix": "smart0337187"
+        "client_id_prefix": "YOUR_CLIENT_ID_PREFIX",
+        "topic_prefix": "YOUR_TOPIC_PREFIX"
     },
     "network": {
-        "server_ip": "10.193.121.203",
+        "server_ip": "YOUR_SERVER_IP",
         "server_udp_port": 8884,
         "server_udp_receive_port": 8885,
         "stt_bridge_ip": null,
@@ -55,9 +55,5 @@
     },
     "debug": {
         "enabled": false
-    },
-    "command_topic": "smart0337187/client/command/yumi100",
-    "audio_topic": "smart0337187/client/audio/yumi100",
-    "status_topic": "smart0337187/client/status/yumi100",
-    "config_topic": "smart0337187/client/config/yumi100"
+    }
 }

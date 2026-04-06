@@ -62,8 +62,8 @@ def load_config_from_file():
                 # Wake word configuration
                 "wake_word": {
                     "enabled": True,
-                    "api_key": "engq+3lVOO74PHIKEFTW0/d17wc9gVarMZWkjXZgxvGbqPV2q58koA==",
-                    "keyword_path": "wakeword_source/hello_chris_pi.ppn",
+                    "api_key": "",  # Get your free API key at console.picovoice.ai
+                    "keyword_path": "wakeword_source/your_wake_word_pi.ppn",
                     "sensitivity": 0.5
                 },
 

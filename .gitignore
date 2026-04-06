@@ -20,3 +20,16 @@ Thumbs.db
 .env
 .venv/
 venv/
+
+# Sensitive configuration - copy config.example.json to config.json and fill in your values
+config.json
+
+# Wake word model files (Picovoice account-bound, generate your own at console.picovoice.ai)
+*.ppn
+
+# Binary/library bundles - see README for download instructions
+libmpv/
+opuslib/
+
+# Recordings directory
+recordings/
