@@ -1,0 +1,5 @@
+paho-mqtt==1.6.1
+pyaudio==0.2.11
+opuslib==3.0.1
+pvporcupine==3.0.5
+pvporcupinedemo==3.0.5
