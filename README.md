@@ -1,28 +1,28 @@
-# Pi Client - Smart Voice Assistant Client
+# Yumi Client - Smart  Assistant Client
 
-A Raspberry Pi-based smart voice assistant client that supports wake word detection, audio recording, MQTT communication, and music playback functionality.
+A client interface of [Yumi-Server](https://github.com/jjun504/Yumi-Server) for Raspberry Pi and Windows, which supports wake word detection, audio recording, MQTT communication, and music playback functionality.
 
 ## Features
 
-### 🎤 Audio Processing
+### Audio Processing
 - **Wake Word Detection**: Local wake word detection using Porcupine engine
 - **Audio Recording**: High-quality audio recording and real-time transmission
 - **Audio Playback**: Support for audio playback and music streaming
 - **Smart Volume Control**: Automatic music volume adjustment during recording and audio reception
 
-### 🌐 Network Communication
+### Network Communication
 - **MQTT Communication**: Real-time command and status synchronization with server
 - **UDP Audio Transmission**: Efficient audio data transmission
 - **Server Discovery**: Automatic discovery of servers on the network
 - **STT Bridge Mode**: Support for Speech-to-Text bridge processing
 
-### 🎵 Music Playback
+### Music Playback
 - **YouTube Playback**: Direct playback of YouTube links
 - **Volume Control**: Independent music volume control
 - **Playback Control**: Play, pause, stop, and resume functionality
 - **Auto-Continue**: Automatic request for next song after completion
 
-### ⚙️ Configuration Management
+### Configuration Management
 - **JSON Configuration**: All settings stored in `config.json` file
 - **Dynamic Configuration**: Runtime configuration updates supported
 - **Device Management**: Support for multiple device ID switching
@@ -44,8 +44,8 @@ A Raspberry Pi-based smart voice assistant client that supports wake word detect
 
 ### 1. Clone the Project
 ```bash
-git clone https://github.com/YOUR_USERNAME/pi_client.git
-cd pi_client
+git clone https://github.com/jjun504/Yumi-Client.git
+cd Yumi-Client
 ```
 
 ### 2. Install Python Dependencies
@@ -70,20 +70,10 @@ pip install python-mpv yt-dlp
 
 ### 4. Configuration File Setup
 
-This repository does **not** include `config.json` (it contains sensitive credentials). Copy the example file and fill in your values:
-
 ```bash
 cp config.example.json config.json
 nano config.json
 ```
-
-Key fields to fill in:
-- `system.device_id` — unique name for this device
-- `system.password` — device authentication password
-- `wake_word.api_key` — your Picovoice API key
-- `wake_word.keyword_path` — path to your `.ppn` wake word file
-- `network.server_ip` — IP address of your server
-- `mqtt.topic_prefix` / `mqtt.client_id_prefix` — choose unique values to avoid conflicts with other users on the public broker
 
 ### 5. Audio Device Configuration
 
@@ -153,60 +143,6 @@ pip install opuslib
 
 On Windows (for development/testing), download the prebuilt `libmpv` DLL from [mpv.io/installation](https://mpv.io/installation/) and place the `.dll` in the `libmpv/` directory.
 
-## Configuration
-
-### Configuration File Structure (`config.json`)
-
-```json
-{
-    "system": {
-        "device_id": "your_device_id",    // Unique device identifier
-        "password": "device_password",     // Device password
-        "user_id": "user_id",             // User ID
-        "model": "raspberry_pi",          // Device model
-        "version": "1.0.0",               // Version number
-        "log_level": "DEBUG"              // Log level
-    },
-    "wake_word": {
-        "enabled": true,                  // Enable wake word detection
-        "api_key": "your_porcupine_key", // Porcupine API key
-        "keyword_path": "wakeword_source/hello_chris_pi.ppn",
-        "sensitivity": 0.5                // Wake word sensitivity (0.0-1.0)
-    },
-    "audio_settings": {
-        "sample_rate": 24000,             // Audio sample rate
-        "channels": 1,                    // Audio channels
-        "chunk_size": 960,                // Audio chunk size
-        "general_volume": 50,             // General volume
-        "music_volume": 50,               // Music volume
-        "notification_volume": 50         // Notification volume
-    },
-    "mqtt": {
-        "broker": "broker.emqx.io",       // MQTT broker address
-        "port": 1883,                     // MQTT port
-        "client_id_prefix": "smart_assistant_87",
-        "topic_prefix": "smart0337187"    // MQTT topic prefix
-    },
-    "network": {
-        "server_ip": "192.168.1.100",     // Server IP address
-        "server_udp_port": 8884,          // UDP audio transmission port
-        "server_udp_receive_port": 8885,  // UDP audio reception port
-        "discovery_port": 50000,          // Server discovery port
-        "stt_mode": false                 // STT bridge mode
-    },
-    "recording": {
-        "auto_stop": true,                // Auto-stop recording
-        "timeout": 15.0,                  // Recording timeout (seconds)
-        "silence_threshold": 300,         // Silence threshold
-        "initial_silence_duration": 3.0,  // Initial silence duration
-        "speech_silence_duration": 1.0    // Post-speech silence duration
-    },
-    "debug": {
-        "enabled": false                  // Debug mode
-    }
-}
-```
-
 ### Important Configuration Items
 
 1. **device_id**: Unique device identifier for MQTT communication
@@ -224,205 +160,6 @@ python pi_client.py
 # Run with specified device ID
 python pi_client.py --device-id your_device_id
 ```
-
-### Command Line Arguments
-```bash
-python pi_client.py --help
-```
-
-Available parameters:
-- `--device-id`: Specify device ID
-- Other configurations are managed through the `config.json` file
-
-### Execution Flow
-
-1. **Startup**: Program automatically loads configuration file on startup
-2. **Initialization**: Initialize audio devices, MQTT connection, wake word detection
-3. **Standby**: Wait for wake word trigger
-4. **Wake**: Start audio recording after wake word detection
-5. **Transmission**: Send audio data to server via UDP
-6. **Response**: Receive and play audio returned from server
-
-### MQTT Commands
-
-The client supports the following MQTT commands:
-
-#### Music Control
-```json
-{
-    "type": "play_music",
-    "url": "https://www.youtube.com/watch?v=VIDEO_ID",
-    "volume": 50
-}
-```
-
-```json
-{
-    "type": "stop_music"
-}
-```
-
-```json
-{
-    "type": "pause_music"
-}
-```
-
-```json
-{
-    "type": "resume_music"
-}
-```
-
-#### Volume Control
-```json
-{
-    "type": "set_volume",
-    "volume_type": "music",
-    "volume": 70
-}
-```
-
-#### Recording Control
-```json
-{
-    "type": "start_recording"
-}
-```
-
-```json
-{
-    "type": "stop_recording"
-}
-```
-
-#### Configuration Updates
-```json
-{
-    "type": "update_config",
-    "config": {
-        "wake_word": {
-            "enabled": false
-        }
-    }
-}
-```
-
-## Troubleshooting
-
-### Common Issues
-
-#### 1. Audio Device Problems
-```bash
-# Check audio devices
-aplay -l
-arecord -l
-
-# Test audio recording
-arecord -d 5 test.wav
-
-# Test audio playback
-aplay test.wav
-```
-
-#### 2. Wake Word Not Working
-- Check if Porcupine API key is correct
-- Confirm wake word file path is correct
-- Adjust wake word sensitivity
-- Check microphone permissions and volume
-
-#### 3. MQTT Connection Issues
-- Check network connection
-- Verify MQTT broker address and port
-- Check firewall settings
-
-#### 4. Music Playback Issues
-- Confirm mpv and yt-dlp are installed
-- Check network connection
-- Verify YouTube link validity
-
-### Debug Logging
-```bash
-# Enable debug logging
-# Set in config.json:
-"system": {
-    "log_level": "DEBUG"
-}
-
-# Or enable debug mode:
-"debug": {
-    "enabled": true
-}
-```
-
-### Performance Optimization
-
-1. **Audio Buffering**: Adjust `chunk_size` to optimize latency and stability
-2. **Network Optimization**: Ensure stable network connection
-3. **Resource Management**: Periodic restart to free memory
-
-## Development
-
-### Project Structure
-```
-pi_client/
-├── pi_client.py            # Main program
-├── music_player.py         # Music playback module
-├── wake_word_detector.py   # Wake word detection module
-├── config.example.json     # Configuration template (copy to config.json)
-├── config.json             # Your configuration (not in repo, gitignored)
-├── requirements.txt        # Python dependencies
-├── sound/                  # Audio files directory
-│   └── pvwake.wav          # Wake notification sound
-├── wakeword_source/        # Wake word files directory (*.ppn gitignored)
-│   └── your_wake_word.ppn  # Your Picovoice wake word model
-└── recordings/             # Recording files directory (debug mode, gitignored)
-```
-
-### Extension Development
-- Add new MQTT command handlers
-- Integrate other wake word engines
-- Support more audio formats
-- Add local speech recognition
-
-### Module Overview
-
-#### `pi_client.py`
-Main application module that orchestrates all functionality:
-- MQTT communication and command handling
-- Audio recording and transmission
-- Device state management
-- Configuration management
-
-#### `music_player.py`
-Music playback functionality:
-- YouTube URL processing with yt-dlp
-- MPV-based audio playback
-- Volume and playback control
-- Completion callbacks
-
-#### `wake_word_detector.py`
-Wake word detection using Porcupine:
-- Real-time audio processing
-- Wake word sensitivity configuration
-- Pre-buffer audio capture
-- Thread-safe detection callbacks
-
-## API Reference
-
-### MQTT Topics
-
-The client uses the following MQTT topic structure:
-- **Command Topic**: `{topic_prefix}/server/command/{device_id}`
-- **Status Topic**: `{topic_prefix}/client/status/{device_id}`
-- **Config Topic**: `{topic_prefix}/client/config/{device_id}`
-- **Request Topic**: `{topic_prefix}/client/request/{device_id}`
-
-### Device States
-- `idle`: Waiting for wake word
-- `listening`: Recording audio
-- `processing`: Processing audio
-- `playing`: Playing music
 
 ## License
 
