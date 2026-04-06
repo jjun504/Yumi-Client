@@ -1,4 +1,4 @@
-# Yumi Client - Smart  Assistant Client
+# Yumi Client - Your Smart  Assistant
 
 A client interface of [Yumi-Server](https://github.com/jjun504/Yumi-Server) for Raspberry Pi and Windows, which supports wake word detection, audio recording, MQTT communication, and music playback functionality.
 
