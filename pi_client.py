@@ -17,6 +17,8 @@ import wave
 import argparse
 import audioop
 from scipy import signal as scipy_signal
+import audioop
+from scipy import signal as scipy_signal
 
 # Import custom modules
 from music_player import MusicPlayer, MPV_AVAILABLE
@@ -216,6 +218,15 @@ class PiClient:
 
         # Recording state management (for volume control)
         self.recording_volume_reduced = False
+
+        # 重采样相关配置（录音功能）
+        self.device_rate = 48000  # 麦克风的实际采样率
+        self.processing_rate = CONFIG["audio_settings"]["sample_rate"]  # 目标采样率 (24000)
+        self.frames_per_read = None  # 每次读取的帧数
+
+        # 重采样性能统计
+        self.resample_times = []  # 存储重采样耗时
+        self.resample_count = 0   # 重采样次数计数
 
         # 重采样相关配置（录音功能）
         self.device_rate = 48000  # 麦克风的实际采样率
@@ -1248,6 +1259,10 @@ class PiClient:
 
             logger.info(f"麦克风已打开，设备采样率: {self.device_rate}Hz, 处理采样率: {self.processing_rate}Hz, 通道数: {CONFIG['audio_settings']['channels']}")
             logger.info(f"每次读取帧数: {self.frames_per_read}, 重采样后帧数: {CONFIG['audio_settings']['chunk_size']}")
+
+            # 重置性能统计
+            self.resample_times = []
+            self.resample_count = 0
 
             # 重置性能统计
             self.resample_times = []

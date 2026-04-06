@@ -52,6 +52,11 @@ class PorcupineWakeWordDetector:
         self.processing_rate = 16000   # Porcupine要求的采样率
         self.frames_per_read = None    # 每次读取的帧数
 
+        # 重采样相关配置
+        self.device_rate = 48000       # 麦克风的实际采样率
+        self.processing_rate = 16000   # Porcupine要求的采样率
+        self.frames_per_read = None    # 每次读取的帧数
+
     def initialize(self, config):
         """Initialize Porcupine wake word detector"""
         if not PORCUPINE_AVAILABLE:
